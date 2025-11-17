@@ -1,19 +1,41 @@
 from __future__ import annotations
-from typing import Iterable, List
+from typing import Dict, Iterable, List
 import re
 
+import numpy as np
+import inflect
+import spacy
+from jinja2 import Template
+
 # ============================================================
-# Helper Functions
+# Lightweight NLP
+# ============================================================
+
+_p = inflect.engine()
+
+try:
+    # We only need tagging + lemma, keep it light
+    _nlp = spacy.load("en_core_web_sm", disable=["ner", "parser", "textcat"])
+except Exception:
+    _nlp = spacy.blank("en")
+
+
+# ============================================================
+# Label cleaning + semantic classification 
 # ============================================================
 
 _IRI_LAST_SEG_RE = re.compile(r"[#/](?!.*[/#])")
 
+PERSON_KEYWORDS = {"person", "employee", "author", "user", "customer", "patient", "citizen"}
+ORG_KEYWORDS = {"organization", "organisation", "company", "firm", "vendor", "provider", "institution"}
+TIME_KEYWORDS = {"date", "time", "year", "month", "day", "timestamp", "period"}
+LOC_KEYWORDS = {"address", "city", "country", "place", "location", "region", "street"}
+ID_KEYWORDS = {"id", "identifier", "uuid", "code", "number", "no"}
+NUM_KEYWORDS = {"amount", "price", "score", "rating", "age", "value", "count", "quantity"}
+TEXT_KEYWORDS = {"name", "title", "label", "description", "comment", "text", "note"}
+
 
 def _last_segment(s: str) -> str:
-    """
-    Just grabs the last part of an IRI. 
-    TODO: probably need something smarter here later.
-    """
     if "://" in s or "#" in s or "/" in s:
         return _IRI_LAST_SEG_RE.split(s)[-1]
     if ":" in s:
@@ -21,54 +43,126 @@ def _last_segment(s: str) -> str:
     return s
 
 
+def _doc_for_label(raw: str):
+    base = _last_segment(raw).replace("_", " ").replace("-", " ")
+    base = re.sub(r"(?<=[a-z0-9])([A-Z])", r" \1", base)
+    return _nlp(base)
+
+
 def analyze_label_semantics(raw: str) -> str:
     """
-    Placeholder for semantic/NLP classification.
-    TODO: hook up spaCy properly when I have time.
+    Classify a label 
     """
+    doc = _doc_for_label(raw)
+    lemmas = {t.lemma_.lower() for t in doc if t.is_alpha}
+    texts = {t.text.lower() for t in doc if t.is_alpha}
+    bag = lemmas | texts
+
+    if bag & PERSON_KEYWORDS:
+        return "person"
+    if bag & ORG_KEYWORDS:
+        return "org"
+    if bag & TIME_KEYWORDS:
+        return "time"
+    if bag & LOC_KEYWORDS:
+        return "location"
+    if bag & ID_KEYWORDS:
+        return "identifier"
+    if bag & NUM_KEYWORDS:
+        return "numeric"
+    if bag & TEXT_KEYWORDS:
+        return "text"
     return "generic"
 
 
 def category_display_word(category: str, plural: bool = False) -> str:
     """
-    Returns something human-readable for now.
-    TODO: eventually integrate inflect or something so pluralization isn't hacked.
+    Map semantic category to a human phrase.
     """
-    base = "data object"
+    mapping = {
+        "person": "person record",
+        "org": "organization record",
+        "time": "date field",
+        "location": "address or location",
+        "identifier": "identifier field",
+        "numeric": "numeric field",
+        "text": "text field",
+        "generic": "data object",
+    }
+    base = mapping.get(category, "data object")
     if plural:
-        return "data objects"
+        return _p.plural(base)
     return base
 
 
 def clean_label(raw: str) -> str:
     """
-    Cleans up a QName-ish string.
-    TODO: this should probably use spaCy later but this is fine for now.
+    Turn an IRI / QName / camelCase into a nicer label.
+
+      http://ex.org/birthDate → "Birth date"
+      ex:worksFor            → "Works for"
     """
-    base = _last_segment(raw).replace("_", " ").replace("-", " ")
-    base = re.sub(r"(?<=[a-z0-9])([A-Z])", r" \1", base)
-    out = re.sub(r"\s+", " ", base).strip()
+    doc = _doc_for_label(raw)
+    toks = []
+    for t in doc:
+        if not t.text.strip():
+            continue
+        if t.pos_ in ("PROPN", "NOUN"):
+            toks.append(t.text.capitalize())
+        else:
+            toks.append(t.text.lower())
+    out = re.sub(r"\s+", " ", " ".join(toks)).strip()
     return out or raw
 
 
 def clean_pairs(pairs: Iterable[tuple[str, int]]) -> List[tuple[str, int]]:
-    """
-    Keep this around for later.
-    TODO: maybe sort or normalize or something when real logic exists.
-    """
     return [(clean_label(n), int(c)) for (n, c) in pairs]
 
 
 def dominant_category(labels: Iterable[str]) -> str:
     """
-    TODO: run all labels through analyze_label_semantics and count them.
-          (right now everything is just 'generic')
+    Return the *true* dominant category (including 'generic').
+
     """
-    return "generic"
+    counts: Dict[str, int] = {}
+    for lab in labels:
+        cat = analyze_label_semantics(lab)
+        counts[cat] = counts.get(cat, 0) + 1
+    if not counts:
+        return "generic"
+    # Strict argmax (generic may win)
+    return max(counts.items(), key=lambda kv: kv[1])[0]
+
+
+def _example_terms(labels: Iterable[str], category: str, k: int = 2) -> List[str]:
+    """
+    Use spaCy to surface a couple of representative labels for the given category.
+
+    If the category is 'generic' or we don't find matches,
+    we just show a couple of cleaned labels (but only if the caller wants them).
+    """
+    labels = list(labels)
+    examples: List[str] = []
+    if category != "generic":
+        for lab in labels:
+            if analyze_label_semantics(lab) == category:
+                examples.append(clean_label(lab))
+            if len(examples) >= k:
+                break
+    if not examples:
+        examples = [clean_label(l) for l in labels[:k]]
+    return examples
+
+
+def _percentage(part: int, whole: int) -> float:
+    if whole <= 0:
+        return 0.0
+    return round(100.0 * part / whole, 1)
+
 
 
 # ============================================================
-# HOME VIEW – Node Shape histogram
+# HOME – Node Shape histogram
 # ============================================================
 
 def summarize_nodeshape_with_templates(
@@ -78,19 +172,133 @@ def summarize_nodeshape_with_templates(
     level: str = "high",
 ) -> str:
     """
-    Summary for node shape histogram.
-    TODO: actually compute the histogram stuff (min/max/cluster/outliers etc).
-          For now just sending boilerplate text.
+    'Violations per Node Shape' histogram.
+
+    Each bar = how many node shapes fall into a violation interval.
     """
-    if level == "high":
-        explanation = (
-            "This chart groups rule sets by how many violations they have per node shape."
-        )
+    shape_data = homepage_service.get_violations_per_node_shape(
+        shapes_graph_uri=shapes_graph_uri,
+        validation_report_uri=report_uri,
+    )
+    counts = [int(item["NumViolations"]) for item in shape_data] if shape_data else []
+    labels_ns = [item["NodeShapeName"] for item in shape_data] if shape_data else []
+
+    total_shapes = len(counts)
+    violated_counts = [c for c in counts if c > 0]
+    violated_shapes = len(violated_counts)
+
+    dom_category = dominant_category(labels_ns)
+    use_semantic = dom_category != "generic"
+    if use_semantic:
+        entity_word_plural = category_display_word(dom_category, plural=True)
+        examples = _example_terms(labels_ns, dom_category, k=2)
     else:
-        explanation = (
-            "This view aggregates SHACL NodeShapes by their total number of validation results."
+        entity_word_plural = "data objects"
+        examples = []
+
+    if level == "high":
+        intro = (
+            "Node shape refers to a group of data objects for which certain rules apply. "
+            "This chart groups these rule sets by how many violations they have."
         )
-    return explanation + " More detailed analysis coming once I implement it."
+        if use_semantic and examples:
+            intro += (
+                f" Based on the shape names, the NLP classifier suggests that most shapes describe "
+                f"{entity_word_plural}, for example {', '.join(examples)}."
+            )
+    else:
+        intro = (
+            "Each bar aggregates SHACL NodeShapes by their total number of validation results. "
+            "The bar height is the number of NodeShapes whose violation count falls into that interval."
+        )
+        if use_semantic and examples:
+            intro += (
+                f" From their labels, many of these shapes appear to describe {entity_word_plural}, "
+                f"such as {', '.join(examples)}."
+            )
+
+    if total_shapes == 0:
+        return intro + " No node shapes are present in the shapes graph."
+
+    if violated_shapes == 0:
+        return intro + " No node shapes are violated."
+    else:
+        perc = _percentage(violated_shapes, total_shapes)
+        perc_sentence = f"{perc}% of node shapes are violated."
+
+    dist = homepage_service.distribution_of_violations_per_shape(
+        shapes_graph_uri=shapes_graph_uri,
+        validation_report_uri=report_uri,
+    )
+    labels = dist.get("labels", [])
+    freqs = dist.get("datasets", [{}])[0].get("data", [])
+
+    if not labels or not freqs:
+        if violated_counts:
+            min_v, max_v = min(violated_counts), max(violated_counts)
+            spread_sentence = (
+                f"They show a wide spread of violation counts, ranging from {min_v} to {max_v} violations. "
+                "Some shapes trigger only very few issues, while others suffer from much larger rule problems."
+            )
+            return " ".join([intro, perc_sentence, spread_sentence])
+        return " ".join([intro, perc_sentence])
+
+    total_bins = sum(freqs) or 1
+    dom_idx = int(np.argmax(freqs))
+    dom_label = labels[dom_idx]
+    dom_share = freqs[dom_idx] / total_bins
+
+    try:
+        low_s, high_s = re.split(r"[-–]", dom_label)
+        dom_range = f"{int(low_s)}–{int(high_s)}"
+        dom_high = int(high_s)
+    except Exception:
+        dom_range = dom_label
+        dom_high = max(violated_counts) if violated_counts else 0
+
+    vmin, vmax = (min(violated_counts), max(violated_counts)) if violated_counts else (0, 0)
+
+    if counts:
+        max_val = max(counts)
+        idx_max = counts.index(max_val)
+        most_violated_name = clean_label(labels_ns[idx_max])
+        share_max = max_val / (sum(counts) or 1)
+    else:
+        most_violated_name, share_max = "", 0.0
+
+    outlier_threshold = dom_high * 1.5 if dom_high > 0 else 0
+    has_outliers = vmax > outlier_threshold and outlier_threshold > 0
+
+    if dom_share < 0.35:
+        body = (
+            f"They show a wide spread of violation counts, ranging from {vmin} to {vmax} violations. "
+            "This means some shapes trigger only very few issues, while others suffer from much larger rule problems. "
+            "The differences suggest varying data quality across shape types."
+        )
+        return " ".join([intro, perc_sentence, body])
+
+    if share_max > 0.35 and vmax >= dom_high:
+        perc_out = _percentage(max_val, sum(counts) or 1)
+        body = (
+            f"While most of them fall into the range of {dom_range} violations, "
+            f"the shape {most_violated_name} is responsible for about {perc_out}% of all issues and should be reviewed first."
+        )
+        return " ".join([intro, perc_sentence, body])
+
+    if not has_outliers:
+        body = (
+            f"Most of them fall into the range of {dom_range} violations, "
+            "meaning that many data entities of this type likely share similar rule issues. "
+            "This indicates that most of the problems are concentrated and probably relate to a recurring pattern in these shapes."
+        )
+        return " ".join([intro, perc_sentence, body])
+
+    body = (
+        f"While most of them fall into the range of {dom_range} violations, "
+        f"a few shapes show unusually high counts with up to {vmax} violations. "
+        "These outliers likely point to specific modeling or data-entry issues related to those shapes and should be reviewed first."
+    )
+    return " ".join([intro, perc_sentence, body])
 
 
 def home_nodeshape_hist(
@@ -108,7 +316,7 @@ def home_nodeshape_hist(
 
 
 # ============================================================
-# HOME VIEW – Path histogram
+# HOME – Path histogram
 # ============================================================
 
 def summarize_path_hist_with_templates(
@@ -144,7 +352,7 @@ def home_path_hist(
 
 
 # ============================================================
-# HOME VIEW – Focus node histogram
+# HOME – Focus node histogram
 # ============================================================
 
 def summarize_focusnode_hist_with_templates(
@@ -180,7 +388,7 @@ def home_focusnode_hist(
 
 
 # ============================================================
-# HOME VIEW – Constraint component histogram
+# HOME – Constraint component histogram
 # ============================================================
 
 def summarize_constraint_hist_with_templates(
@@ -216,7 +424,7 @@ def home_constraint_hist(
 
 
 # ============================================================
-# HOME VIEW– Path Toplist
+# HOME – Path Toplist
 # ============================================================
 
 def home_paths_top(
@@ -315,113 +523,3 @@ def shapes_correlation_constraints_vs_violations(
     )
 
 
-# ============================================================
-# SHAPES VIEW – Diversity vs intensity
-# ============================================================
-
-def summarize_diversity_intensity_templates(
-    shapes_overview_service,
-    report_uri: str,
-    level: str = "high",
-) -> str:
-    """
-    TODO: compute entropy + violation intensity + categorize points.
-    """
-    if level == "high":
-        explanation = (
-            "This chart compares how many different rules are affected with how strong the violations are."
-        )
-    else:
-        explanation = (
-            "X-axis: entropy (diversity), Y-axis: violations per constraint (intensity)."
-        )
-    return explanation + " (TODO: finish diversity–intensity analysis)."
-
-
-def shapes_diversity_intensity(
-    shapes_overview_service,
-    report_uri: str,
-    level: str,
-) -> str:
-    return summarize_diversity_intensity_templates(
-        shapes_overview_service=shapes_overview_service,
-        report_uri=report_uri,
-        level=level,
-    )
-
-
-# ============================================================
-# SHAPES VIEW – Heatmap
-# ============================================================
-
-def summarize_heatmap_templates(
-    shapes_overview_service,
-    report_uri: str,
-    level: str = "high",
-) -> str:
-    """
-    Heatmap summary.
-    TODO: load matrix, find hot rows/columns, do some basic heuristics.
-    """
-    if level == "high":
-        explanation = (
-            "In this heatmap, each row represents a rule group and each column represents a data field."
-        )
-    else:
-        explanation = (
-            "Heatmap shows NodeShapes as rows and PropertyShapes as columns with violation counts."
-        )
-    return explanation + " TODO: hotspot detection not implemented yet."
-
-
-def shapes_heatmap_summary(
-    shapes_overview_service,
-    report_uri: str,
-    level: str,
-) -> str:
-    return summarize_heatmap_templates(
-        shapes_overview_service=shapes_overview_service,
-        report_uri=report_uri,
-        level=level,
-    )
-
-
-# ============================================================
-# SHAPES VIEW – PropertyShape contribution inside NodeShape
-# ============================================================
-
-def summarize_property_contribution_templates(
-    shapes_overview_service,
-    node_shape: str,
-    report_uri: str,
-    level: str = "high",
-    top_k: int = 3,
-) -> str:
-    """
-    TODO: find top-k property shapes for this node shape + calculate percentages.
-    """
-    if level == "high":
-        explanation = (
-            "This chart shows which data fields contribute most to the violations inside the selected NodeShape."
-        )
-    else:
-        explanation = (
-            "This view aggregates violation counts per PropertyShape for the selected NodeShape."
-        )
-    return explanation + f" TODO: real top-{top_k} contribution calculation goes here."
-
-
-def shapes_property_contribution(
-    shapes_overview_service,
-    node_shape: str,
-    report_uri: str,
-    level: str,
-    top_k: int = 3,
-) -> str:
-    return summarize_property_contribution_templates(
-        shapes_overview_service=shapes_overview_service,
-        node_shape=node_shape,
-        report_uri=report_uri,
-        level=level,
-        top_k=top_k,
-    )
