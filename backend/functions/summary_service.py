@@ -5,7 +5,6 @@ import re
 import numpy as np
 import inflect
 import spacy
-from jinja2 import Template
 
 # ============================================================
 # Lightweight NLP
@@ -14,7 +13,7 @@ from jinja2 import Template
 _p = inflect.engine()
 
 try:
-    # We only need tagging + lemma, keep it light
+    # We only need tagging + lemma
     _nlp = spacy.load("en_core_web_sm", disable=["ner", "parser", "textcat"])
 except Exception:
     _nlp = spacy.blank("en")
@@ -44,6 +43,7 @@ def _last_segment(s: str) -> str:
 
 
 def _doc_for_label(raw: str):
+    """Process label through spaCy."""
     base = _last_segment(raw).replace("_", " ").replace("-", " ")
     base = re.sub(r"(?<=[a-z0-9])([A-Z])", r" \1", base)
     return _nlp(base)
@@ -51,10 +51,13 @@ def _doc_for_label(raw: str):
 
 def analyze_label_semantics(raw: str) -> str:
     """
-    Classify a label 
+    Classify a label using keyword matching with lemmatization.
+    Uses spaCy for better word matching (handles plurals, verb forms, etc.)
     """
     doc = _doc_for_label(raw)
+    # Use lemmas for better matching (handles "employees" -> "employee", "dated" -> "date")
     lemmas = {t.lemma_.lower() for t in doc if t.is_alpha}
+    # Also check original text for compound words
     texts = {t.text.lower() for t in doc if t.is_alpha}
     bag = lemmas | texts
 
@@ -107,6 +110,7 @@ def clean_label(raw: str) -> str:
     for t in doc:
         if not t.text.strip():
             continue
+        # Use POS tags for better capitalization (proper nouns and nouns get capitalized)
         if t.pos_ in ("PROPN", "NOUN"):
             toks.append(t.text.capitalize())
         else:
@@ -326,17 +330,62 @@ def summarize_path_hist_with_templates(
 ) -> str:
     """
     Summary for path histogram.
-    TODO: get real path violation counts, bin them, detect heavy hitters, etc.
     """
+    try:
+        path_data = homepage_service.get_violations_per_path(validation_report_uri=report_uri)
+        dist = homepage_service.distribution_of_violations_per_path(validation_report_uri=report_uri)
+    except Exception:
+        if level == "high":
+            return "This chart groups data fields (paths) by how many violations they cause."
+        return "Each bar corresponds to a bin of violation counts for sh:resultPath values."
+
+    if not path_data:
+        if level == "high":
+            return "This chart groups data fields (paths) by how many violations they cause. No paths with violations found."
+        return "Each bar corresponds to a bin of violation counts for sh:resultPath values. No data available."
+
+    total_paths = len(path_data)
+    violated_paths = [p for p in path_data if p.get("NumViolations", 0) > 0]
+    num_violated = len(violated_paths)
+    total_violations = sum(p.get("NumViolations", 0) for p in path_data)
+
     if level == "high":
-        explanation = (
-            "This chart groups data fields (paths) by how many violations they cause."
+        intro = (
+            "This chart groups data fields (paths) by how many violations they cause. "
         )
     else:
-        explanation = (
-            "Each bar corresponds to a bin of violation counts for sh:resultPath values."
+        intro = (
+            "Each bar corresponds to a bin of violation counts for sh:resultPath values. "
         )
-    return explanation + " Actual stats will be added later (once implemented)."
+
+    if total_violations == 0:
+        return intro + " No violations found for any paths."
+
+    perc = _percentage(num_violated, total_paths) if total_paths > 0 else 0
+    intro += f" {perc}% of paths ({num_violated} out of {total_paths}) have violations, totaling {total_violations} violations."
+
+    if dist and dist.get("labels") and dist.get("datasets"):
+        labels = dist.get("labels", [])
+        freqs = dist.get("datasets", [{}])[0].get("data", [])
+        if labels and freqs:
+            dom_idx = int(np.argmax(freqs))
+            dom_label = labels[dom_idx]
+            dom_share = freqs[dom_idx] / max(sum(freqs), 1)
+            
+            if dom_share > 0.4:
+                intro += f" Most paths fall into the {dom_label} violations range."
+            else:
+                intro += " Violations are spread across different ranges, indicating varied data quality issues."
+
+    # Find most violated path
+    if violated_paths:
+        max_path = max(violated_paths, key=lambda x: x.get("NumViolations", 0))
+        max_path_label = clean_label(max_path.get("PathName", ""))
+        max_violations = max_path.get("NumViolations", 0)
+        perc_max = _percentage(max_violations, total_violations)
+        intro += f" The path '{max_path_label}' has the most violations ({max_violations}, {perc_max}% of total)."
+
+    return intro
 
 
 def home_path_hist(
@@ -362,17 +411,63 @@ def summarize_focusnode_hist_with_templates(
 ) -> str:
     """
     Summary for focus node histogram.
-    TODO: need to calculate bins properly + maybe highlight extreme nodes.
     """
+    try:
+        focus_data = homepage_service.get_violations_per_focus_node(validation_report_uri=report_uri)
+        dist = homepage_service.distribution_of_violations_per_focus_node(validation_report_uri=report_uri)
+    except Exception:
+        if level == "high":
+            return "This chart groups records (focus nodes) by how many rule violations they have."
+        return "Each bar shows how many focus nodes fall into a given range of violation counts."
+
+    if not focus_data:
+        if level == "high":
+            return "This chart groups records (focus nodes) by how many rule violations they have. No focus nodes found."
+        return "Each bar shows how many focus nodes fall into a given range of violation counts. No data available."
+
+    total_nodes = len(focus_data)
+    violated_nodes = [f for f in focus_data if f.get("NumViolations", 0) > 0]
+    num_violated = len(violated_nodes)
+    total_violations = sum(f.get("NumViolations", 0) for f in focus_data)
+    violation_counts = [f.get("NumViolations", 0) for f in violated_nodes]
+
     if level == "high":
-        explanation = (
-            "This chart groups records (focus nodes) by how many rule violations they have."
+        intro = (
+            "This chart groups records (focus nodes) by how many rule violations they have. "
         )
     else:
-        explanation = (
-            "Each bar shows how many focus nodes fall into a given range of violation counts."
+        intro = (
+            "Each bar shows how many focus nodes fall into a given range of violation counts. "
         )
-    return explanation + " More detailed logic still missing (TODO)."
+
+    if total_violations == 0:
+        return intro + " No violations found for any focus nodes."
+
+    perc = _percentage(num_violated, total_nodes) if total_nodes > 0 else 0
+    intro += f" {perc}% of records ({num_violated} out of {total_nodes}) have violations, totaling {total_violations} violations."
+
+    if violation_counts:
+        vmin, vmax = min(violation_counts), max(violation_counts)
+        avg_violations = sum(violation_counts) / len(violation_counts) if violation_counts else 0
+        
+        if dist and dist.get("labels") and dist.get("datasets"):
+            labels = dist.get("labels", [])
+            freqs = dist.get("datasets", [{}])[0].get("data", [])
+            if labels and freqs:
+                dom_idx = int(np.argmax(freqs))
+                dom_label = labels[dom_idx]
+                dom_share = freqs[dom_idx] / max(sum(freqs), 1)
+                
+                if dom_share > 0.4:
+                    intro += f" Most records fall into the {dom_label} violations range."
+                else:
+                    intro += f" Violations range from {vmin} to {vmax}, with an average of {avg_violations:.1f} violations per affected record."
+
+        # Check for outliers
+        if vmax > avg_violations * 3 and avg_violations > 0:
+            intro += f" Some records show unusually high violation counts (up to {vmax}), indicating specific data quality issues that should be prioritized."
+
+    return intro
 
 
 def home_focusnode_hist(
@@ -398,17 +493,61 @@ def summarize_constraint_hist_with_templates(
 ) -> str:
     """
     Summary for constraint component histogram.
-    TODO: figure out which constraints have most violations + sort them.
     """
+    try:
+        dist = homepage_service.get_distribution_of_violations_per_constraint_component(
+            validation_report_uri=report_uri
+        )
+        most_frequent = homepage_service.get_most_frequent_constraint_component(
+            validation_report_uri=report_uri
+        )
+    except Exception:
+        if level == "high":
+            return "This chart groups rule types (constraint components) by how often they are violated."
+        return "Each bar aggregates sh:sourceConstraintComponent values by their violation counts."
+
     if level == "high":
-        explanation = (
-            "This chart groups rule types (constraint components) by how often they are violated."
+        intro = (
+            "This chart groups rule types (constraint components) by how often they are violated. "
         )
     else:
-        explanation = (
-            "Each bar aggregates sh:sourceConstraintComponent values by their violation counts."
+        intro = (
+            "Each bar aggregates sh:sourceConstraintComponent values by their violation counts. "
         )
-    return explanation + " Stats logic will be added later."
+
+    if not dist or not dist.get("labels") or not dist.get("datasets"):
+        return intro + " No constraint component data available."
+
+    labels = dist.get("labels", [])
+    freqs = dist.get("datasets", [{}])[0].get("data", [])
+    
+    if not labels or not freqs:
+        return intro + " No constraint violations found."
+
+    total_constraints = sum(freqs)
+    if total_constraints == 0:
+        return intro + " No violations found for any constraint components."
+
+    # Find dominant constraint type
+    dom_idx = int(np.argmax(freqs))
+    dom_label = labels[dom_idx]
+    dom_count = freqs[dom_idx]
+    dom_share = _percentage(dom_count, total_constraints)
+
+    intro += f" There are {len([f for f in freqs if f > 0])} different constraint types with violations. "
+    
+    if dom_share > 50:
+        constraint_label = clean_label(dom_label)
+        intro += f"The constraint type '{constraint_label}' accounts for {dom_share}% of all violations, indicating it's the primary source of validation issues."
+    else:
+        intro += f"Violations are distributed across multiple constraint types, with '{clean_label(dom_label)}' being the most common ({dom_share}%)."
+
+    if most_frequent and most_frequent.get("constraintComponent"):
+        const_name = clean_label(most_frequent.get("constraintComponent", ""))
+        violations = most_frequent.get("violations", 0)
+        intro += f" The most frequently violated constraint is '{const_name}' with {violations} violations."
+
+    return intro
 
 
 def home_constraint_hist(
@@ -435,17 +574,58 @@ def home_paths_top(
 ) -> str:
     """
     Top violated paths.
-    TODO: actually fetch paths, sort by violation counts, compute percentages, etc.
     """
+    try:
+        path_data = homepage_service.get_violations_per_path(validation_report_uri=report_uri)
+    except Exception:
+        if level == "high":
+            return "This view lists the data fields that are responsible for most of the violations."
+        return "This top list shows the sh:resultPath values with the highest violation counts."
+
+    if not path_data:
+        if level == "high":
+            return "This view lists the data fields that are responsible for most of the violations. No paths with violations found."
+        return "This top list shows the sh:resultPath values with the highest violation counts. No data available."
+
+    # Sort by violations descending
+    sorted_paths = sorted(
+        path_data,
+        key=lambda x: x.get("NumViolations", 0),
+        reverse=True
+    )
+
+    total_violations = sum(p.get("NumViolations", 0) for p in path_data)
+    
+    if total_violations == 0:
+        if level == "high":
+            return "This view lists the data fields that are responsible for most of the violations. No violations found."
+        return "This top list shows the sh:resultPath values with the highest violation counts. No violations detected."
+
+    top_paths = sorted_paths[:top_k]
+    top_violations = sum(p.get("NumViolations", 0) for p in top_paths)
+    top_perc = _percentage(top_violations, total_violations)
+    
+    top_labels = [clean_label(p.get("PathName", "")) for p in top_paths]
+
     if level == "high":
-        explanation = (
-            "This view lists the data fields that are responsible for most of the violations."
+        intro = (
+            f"This view lists the data fields that are responsible for most of the violations. "
+            f"The top {top_k} paths ({', '.join(top_labels)}) account for {top_perc}% of all {total_violations} violations."
         )
+        if top_perc >= 80:
+            intro += " This follows the Pareto principle, where a small number of fields cause most issues."
     else:
-        explanation = (
-            "This top list shows the sh:resultPath values with the highest violation counts."
+        intro = (
+            f"This top list shows the sh:resultPath values with the highest violation counts. "
+            f"Total violations: {total_violations}. Top {top_k} paths account for {top_perc}%:"
         )
-    return explanation + f" TODO: implement real top {top_k} logic."
+        for i, path in enumerate(top_paths, 1):
+            path_label = clean_label(path.get("PathName", ""))
+            violations = path.get("NumViolations", 0)
+            perc = _percentage(violations, total_violations)
+            intro += f" {i}. {path_label}: {violations} violations ({perc}%)."
+
+    return intro
 
 
 # ============================================================
