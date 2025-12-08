@@ -12,8 +12,8 @@ from functions.summary_service import (
     shapes_distribution_per_constraint,
     shapes_correlation_constraints_vs_violations,
     shapes_diversity_intensity,
-    shapes_heatmap_summary,
-    shapes_property_contribution,
+    # shapes_heatmap_summary,  # TODO: Not yet implemented
+    # shapes_property_contribution,  # TODO: Not yet implemented
 )
 
 summary_bp = Blueprint("summary_bp", __name__, url_prefix="/api/summaries")
@@ -24,6 +24,23 @@ def _level_param() -> str:
     return "low" if level == "low" else "high"
 
 
+def _use_llm_param() -> bool:
+    """
+    Parse use_llm parameter from request.
+    
+    Defaults to False to avoid LLM overhead (~1-3s latency).
+    Users can explicitly set use_llm=true to enable LLM-based category detection.
+    """
+    use_llm = request.args.get("use_llm", "false").strip().lower()
+    return use_llm in ("true", "1", "yes")
+
+
+def _include_category_param() -> bool:
+    """Parse include_category parameter from request."""
+    include_category = request.args.get("include_category", "true").strip().lower()
+    return include_category in ("true", "1", "yes")
+
+
 # ============================================================
 #                          HOME VIEW
 # ============================================================
@@ -31,43 +48,153 @@ def _level_param() -> str:
 @summary_bp.get("/home/nodeshape")
 def summarize_home_nodeshape():
     level = _level_param()
+    use_llm = _use_llm_param()
+    include_category = _include_category_param()
     shapes_uri = request.args.get("shapes_graph_uri", default = "http://ex.org/ShapesGraph")
     report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
-    text = home_nodeshape_hist(homepage_service, shapes_uri, report_uri, level)
-    return jsonify({"level": level, "summary": text})
+    
+    # Optional LLM configuration
+    llm_api_key = request.args.get("llm_api_key", default=None)
+    llm_model = request.args.get("llm_model", default="gpt-4o")
+    
+    text = home_nodeshape_hist(
+        homepage_service, 
+        shapes_uri, 
+        report_uri, 
+        level,
+        use_llm=use_llm,
+        include_category=include_category,
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
+    )
+    return jsonify({
+        "level": level, 
+        "summary": text,
+        "use_llm": use_llm,
+        "include_category": include_category
+    })
 
 
 @summary_bp.get("/home/path")
 def summarize_home_path():
     level = _level_param()
+    use_llm = _use_llm_param()
+    include_category = _include_category_param()
+    shapes_uri = request.args.get("shapes_graph_uri", default=None)
     report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
-    text = home_path_hist(homepage_service, report_uri, level)
-    return jsonify({"level": level, "summary": text})
+    
+    # Optional LLM configuration
+    llm_api_key = request.args.get("llm_api_key", default=None)
+    llm_model = request.args.get("llm_model", default="gpt-4o")
+    
+    text = home_path_hist(
+        homepage_service, 
+        report_uri, 
+        level,
+        use_llm=use_llm,
+        include_category=include_category,
+        shapes_graph_uri=shapes_uri,
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
+    )
+    return jsonify({
+        "level": level, 
+        "summary": text,
+        "use_llm": use_llm,
+        "include_category": include_category
+    })
 
 
 @summary_bp.get("/home/focus-node")
 def summarize_home_focus():
     level = _level_param()
+    use_llm = _use_llm_param()
+    include_category = _include_category_param()
+    shapes_uri = request.args.get("shapes_graph_uri", default=None)
     report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
-    text = home_focusnode_hist(homepage_service, report_uri, level)
-    return jsonify({"level": level, "summary": text})
+    
+    # Optional LLM configuration
+    llm_api_key = request.args.get("llm_api_key", default=None)
+    llm_model = request.args.get("llm_model", default="gpt-4o")
+    
+    text = home_focusnode_hist(
+        homepage_service, 
+        report_uri, 
+        level,
+        use_llm=use_llm,
+        include_category=include_category,
+        shapes_graph_uri=shapes_uri,
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
+    )
+    return jsonify({
+        "level": level, 
+        "summary": text,
+        "use_llm": use_llm,
+        "include_category": include_category
+    })
 
 
 @summary_bp.get("/home/constraint")
 def summarize_home_constraint():    
     level = _level_param()
+    use_llm = _use_llm_param()
+    include_category = _include_category_param()
+    shapes_uri = request.args.get("shapes_graph_uri", default=None)
     report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
-    text = home_constraint_hist(homepage_service, report_uri, level)
-    return jsonify({"level": level, "summary": text})
+    
+    # Optional LLM configuration
+    llm_api_key = request.args.get("llm_api_key", default=None)
+    llm_model = request.args.get("llm_model", default="gpt-4o")
+    
+    text = home_constraint_hist(
+        homepage_service, 
+        report_uri, 
+        level,
+        use_llm=use_llm,
+        include_category=include_category,
+        shapes_graph_uri=shapes_uri,
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
+    )
+    return jsonify({
+        "level": level, 
+        "summary": text,
+        "use_llm": use_llm,
+        "include_category": include_category
+    })
 
 
 @summary_bp.get("/home/path/top")
 def summarize_home_path_top():
     level = _level_param()
+    use_llm = _use_llm_param()
+    include_category = _include_category_param()
+    shapes_uri = request.args.get("shapes_graph_uri", default=None)
     report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
     top_k = int(request.args.get("top_k", 3))
-    text = home_paths_top(homepage_service, report_uri, level, top_k)
-    return jsonify({"level": level, "summary": text})
+    
+    # Optional LLM configuration
+    llm_api_key = request.args.get("llm_api_key", default=None)
+    llm_model = request.args.get("llm_model", default="gpt-4o")
+    
+    text = home_paths_top(
+        homepage_service, 
+        report_uri, 
+        level, 
+        top_k,
+        use_llm=use_llm,
+        include_category=include_category,
+        shapes_graph_uri=shapes_uri,
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
+    )
+    return jsonify({
+        "level": level, 
+        "summary": text,
+        "use_llm": use_llm,
+        "include_category": include_category
+    })
 
 
 # ============================================================
@@ -77,55 +204,94 @@ def summarize_home_path_top():
 @summary_bp.get("/shapes/distribution-constraint")
 def summarize_shapes_distribution():
     level = _level_param()
+    use_llm = _use_llm_param()
+    include_category = _include_category_param()
     node_shape = request.args.get("node_shape")
     if not node_shape:
         return jsonify({"error": "node_shape is required"}), 400
+    shapes_uri = request.args.get("shapes_graph_uri", default=None)
     report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
+    
+    # Optional LLM configuration
+    llm_api_key = request.args.get("llm_api_key", default=None)
+    llm_model = request.args.get("llm_model", default="gpt-4o")
+    
     text = shapes_distribution_per_constraint(
-        shapes_overview_service, node_shape, report_uri, level
+        shapes_overview_service, 
+        node_shape, 
+        report_uri, 
+        level,
+        use_llm=use_llm,
+        include_category=include_category,
+        shapes_graph_uri=shapes_uri,
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
     )
-    return jsonify({"level": level, "summary": text})
+    return jsonify({
+        "level": level, 
+        "summary": text,
+        "use_llm": use_llm,
+        "include_category": include_category
+    })
 
 
 @summary_bp.get("/shapes/correlation")
 def summarize_shapes_correlation():
     level = _level_param()
+    use_llm = _use_llm_param()
+    include_category = _include_category_param()
+    shapes_uri = request.args.get("shapes_graph_uri", default=None)
     report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
+    
+    # Optional LLM configuration
+    llm_api_key = request.args.get("llm_api_key", default=None)
+    llm_model = request.args.get("llm_model", default="gpt-4o")
+    
     text = shapes_correlation_constraints_vs_violations(
-        shapes_overview_service, report_uri, level
+        shapes_overview_service, 
+        report_uri, 
+        level,
+        use_llm=use_llm,
+        include_category=include_category,
+        shapes_graph_uri=shapes_uri,
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
     )
-    return jsonify({"level": level, "summary": text})
+    return jsonify({
+        "level": level, 
+        "summary": text,
+        "use_llm": use_llm,
+        "include_category": include_category
+    })
 
 
 @summary_bp.get("/shapes/diversity-intensity")
 def summarize_shapes_diversity_intensity_route():
     level = _level_param()
+    use_llm = _use_llm_param()
+    include_category = _include_category_param()
+    shapes_uri = request.args.get("shapes_graph_uri", default=None)
     report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
+    
+    # Optional LLM configuration
+    llm_api_key = request.args.get("llm_api_key", default=None)
+    llm_model = request.args.get("llm_model", default="gpt-4o")
+    
     text = shapes_diversity_intensity(
-        shapes_overview_service, report_uri, level
+        shapes_overview_service, 
+        report_uri, 
+        level,
+        use_llm=use_llm,
+        include_category=include_category,
+        shapes_graph_uri=shapes_uri,
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
     )
-    return jsonify({"level": level, "summary": text})
+    return jsonify({
+        "level": level, 
+        "summary": text,
+        "use_llm": use_llm,
+        "include_category": include_category
+    })
 
 
-@summary_bp.get("/shapes/heatmap")
-def summarize_shapes_heatmap():
-    level = _level_param()
-    report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
-    text = shapes_heatmap_summary(
-        shapes_overview_service, report_uri, level
-    )
-    return jsonify({"level": level, "summary": text})
-
-
-@summary_bp.get("/shapes/contribution")
-def summarize_shapes_contribution():
-    level = _level_param()
-    node_shape = request.args.get("node_shape")
-    if not node_shape:
-        return jsonify({"error": "node_shape is required"}), 400
-    report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
-    top_k = int(request.args.get("top_k", 3))
-    text = shapes_property_contribution(
-        shapes_overview_service, node_shape, report_uri, level, top_k
-    )
-    return jsonify({"level": level, "summary": text})
