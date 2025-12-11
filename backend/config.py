@@ -8,6 +8,12 @@ AUTH_REQUIRED = False
 USERNAME = ""
 PASSWORD = ""
 
+# ISQL (Virtuoso command-line) credentials
+# These are used for direct database operations via ISQL
+ISQL_USERNAME = "dba"  # Default Virtuoso admin username
+ISQL_PASSWORD = "dba"  # Default Virtuoso admin password - CHANGE THIS if your Virtuoso uses different credentials
+ISQL_PORT = "1111"    # Default ISQL port
+
 # Triple store type - used to handle store-specific operations
 TRIPLE_STORE_TYPE = "virtuoso"  # Options: "virtuoso", "fuseki", "stardog", etc.
 

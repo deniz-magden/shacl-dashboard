@@ -389,6 +389,64 @@ def adaptive_thresholds(data_size: int) -> Tuple[float, float]:
     return outlier_multiplier, cluster_threshold
 
 
+def _is_wide_spread(violated_counts: List[int], min_threshold_ratio: float = 0.3) -> bool:
+    """
+    Determine if violation counts show a wide spread using statistical measures.
+    
+    Uses coefficient of variation (CV) and relative range to assess spread.
+    A wide spread means there's meaningful variation relative to the average.
+    
+    Args:
+        violated_counts: List of violation counts (must be non-empty, non-negative)
+        min_threshold_ratio: Minimum coefficient of variation or relative range to consider "wide"
+                            (default: 0.3 = 30% variation)
+    
+    Returns:
+        True if the spread is considered "wide", False otherwise
+    
+    Examples:
+        [1, 2, 3, 4, 5] -> True (high relative variation)
+        [1000, 1001, 1002, 1003, 1004] -> False (low relative variation)
+        [1, 1, 1, 1, 100] -> True (high relative variation due to outlier)
+    """
+    if not violated_counts or len(violated_counts) < 2:
+        return False
+    
+    # Convert to numpy array for easier calculations
+    counts_array = np.array(violated_counts, dtype=float)
+    
+    # Calculate statistics
+    mean_val = np.mean(counts_array)
+    std_val = np.std(counts_array)
+    min_val = np.min(counts_array)
+    max_val = np.max(counts_array)
+    range_val = max_val - min_val
+    
+    # If all values are the same, no spread
+    if range_val == 0:
+        return False
+    
+    # If mean is very small (< 1), use absolute range threshold
+    # For small means, even small absolute differences are significant
+    if mean_val < 1.0:
+        # Consider wide spread if range is at least 2 (meaningful difference for small numbers)
+        return range_val >= 2.0
+    
+    # Calculate coefficient of variation (CV = std / mean)
+    # CV measures relative variability independent of scale
+    coefficient_of_variation = std_val / mean_val if mean_val > 0 else 0.0
+    
+    # Calculate relative range (range / mean)
+    # This measures how much the range spans relative to the average
+    relative_range = range_val / mean_val if mean_val > 0 else 0.0
+    
+    # Consider wide spread if either CV or relative range exceeds threshold
+    # This catches both cases: high variability (CV) and large relative differences (relative_range)
+    is_wide = coefficient_of_variation >= min_threshold_ratio or relative_range >= min_threshold_ratio
+    
+    return is_wide
+
+
 def _cache_key(labels: List[str], shapes_graph_uri: Optional[str], validation_report_uri: Optional[str]) -> str:
     """Generate cache key from labels and context."""
     # Sort labels for consistent hashing
@@ -511,10 +569,16 @@ def summarize_nodeshape_with_templates(
     if not labels or not freqs:
         if violated_counts:
             min_v, max_v = min(violated_counts), max(violated_counts)
-            spread_sentence = (
-                f"They show a wide spread of violation counts, ranging from {min_v} to {max_v} violations. "
-                "Some shapes trigger only very few issues, while others suffer from much larger rule problems."
-            )
+            if _is_wide_spread(violated_counts):
+                spread_sentence = (
+                    f"They show a wide spread of violation counts, ranging from {min_v} to {max_v} violations. "
+                    "Some shapes trigger only very few issues, while others suffer from much larger rule problems."
+                )
+            else:
+                spread_sentence = (
+                    f"Violation counts range from {min_v} to {max_v} violations. "
+                    "The counts are relatively consistent across shapes, suggesting similar data quality levels."
+                )
             return " ".join([intro, perc_sentence, spread_sentence])
         return " ".join([intro, perc_sentence])
 
@@ -577,11 +641,18 @@ def summarize_nodeshape_with_templates(
     has_outliers = vmax > outlier_threshold and outlier_threshold > 0
 
     if dom_share < cluster_threshold:
-        body = (
-            f"They show a wide spread of violation counts, ranging from {vmin} to {vmax} violations. "
-            "This means some shapes trigger only very few issues, while others suffer from much larger rule problems. "
-            "The differences suggest varying data quality across shape types."
-        )
+        if _is_wide_spread(violated_counts):
+            body = (
+                f"They show a wide spread of violation counts, ranging from {vmin} to {vmax} violations. "
+                "This means some shapes trigger only very few issues, while others suffer from much larger rule problems. "
+                "The differences suggest varying data quality across shape types."
+            )
+        else:
+            body = (
+                f"Violation counts range from {vmin} to {vmax} violations. "
+                "The counts are relatively consistent across shapes, suggesting similar data quality levels, "
+                "though the distribution is not concentrated in a single range."
+            )
         return " ".join([intro, perc_sentence, body])
 
     # Use adaptive threshold for share_max check
@@ -729,11 +800,17 @@ def summarize_path_with_templates(
     if not labels or not freqs:
         if violated_counts:
             min_v, max_v = min(violated_counts), max(violated_counts)
-            spread_sentence = (
-                f"They show a wide spread of violation counts, ranging from {min_v} to {max_v} violations. "
-                "This means some paths trigger only very few issues, while others cause much larger rule problems. "
-                "Suggesting that the rule issues are broad and affect many properties of the data, rather than being isolated."
-            )
+            if _is_wide_spread(violated_counts):
+                spread_sentence = (
+                    f"They show a wide spread of violation counts, ranging from {min_v} to {max_v} violations. "
+                    "This means some paths trigger only very few issues, while others cause much larger rule problems. "
+                    "Suggesting that the rule issues are broad and affect many properties of the data, rather than being isolated."
+                )
+            else:
+                spread_sentence = (
+                    f"Violation counts range from {min_v} to {max_v} violations. "
+                    "The counts are relatively consistent across paths, suggesting similar data quality levels."
+                )
             return " ".join([intro, perc_sentence, spread_sentence])
         return " ".join([intro, perc_sentence])
 
@@ -794,11 +871,18 @@ def summarize_path_with_templates(
     has_outliers = vmax > outlier_threshold and outlier_threshold > 0
 
     if dom_share < cluster_threshold:
-        body = (
-            f"They show a wide spread of violation counts, ranging from {vmin} to {vmax} violations. "
-            "This means some paths trigger only very few issues, while others cause much larger rule problems. "
-            "Suggesting that the rule issues are broad and affect many properties of the data, rather than being isolated."
-        )
+        if _is_wide_spread(violated_counts):
+            body = (
+                f"They show a wide spread of violation counts, ranging from {vmin} to {vmax} violations. "
+                "This means some paths trigger only very few issues, while others cause much larger rule problems. "
+                "Suggesting that the rule issues are broad and affect many properties of the data, rather than being isolated."
+            )
+        else:
+            body = (
+                f"Violation counts range from {vmin} to {vmax} violations. "
+                "The counts are relatively consistent across paths, suggesting similar data quality levels, "
+                "though the distribution is not concentrated in a single range."
+            )
         return " ".join([intro, perc_sentence, body])
 
     if share_max > cluster_threshold and vmax >= dom_high:
@@ -968,11 +1052,17 @@ def summarize_focusnode_with_templates(
     if not labels or not freqs:
         if violated_counts:
             min_v, max_v = min(violated_counts), max(violated_counts)
-            spread_sentence = (
-                f"They differ widely in how many violations they have. "
-                f"Some objects trigger almost no rule issues, while others have a very large number of up to {max_v}. "
-                "This variance may point to inconsistent data entries or different data sources of mixed quality."
-            )
+            if _is_wide_spread(violated_counts):
+                spread_sentence = (
+                    f"They differ widely in how many violations they have. "
+                    f"Some objects trigger almost no rule issues, while others have a very large number of up to {max_v}. "
+                    "This variance may point to inconsistent data entries or different data sources of mixed quality."
+                )
+            else:
+                spread_sentence = (
+                    f"Violation counts range from {min_v} to {max_v}. "
+                    "The counts are relatively consistent across focus nodes, suggesting similar data quality levels."
+                )
             return " ".join([intro, perc_sentence, spread_sentence])
         return " ".join([intro, perc_sentence])
 
@@ -1033,11 +1123,18 @@ def summarize_focusnode_with_templates(
     has_outliers = vmax > outlier_threshold and outlier_threshold > 0
 
     if dom_share < cluster_threshold:
-        body = (
-            f"They differ widely in how many violations they have. "
-            f"Some objects trigger almost no rule issues, while others have a very large number of up to {vmax}. "
-            "This variance may point to inconsistent data entries or different data sources of mixed quality."
-        )
+        if _is_wide_spread(violated_counts):
+            body = (
+                f"They differ widely in how many violations they have. "
+                f"Some objects trigger almost no rule issues, while others have a very large number of up to {vmax}. "
+                "This variance may point to inconsistent data entries or different data sources of mixed quality."
+            )
+        else:
+            body = (
+                f"Violation counts range from {vmin} to {vmax}. "
+                "The counts are relatively consistent across focus nodes, suggesting similar data quality levels, "
+                "though the distribution is not concentrated in a single range."
+            )
         return " ".join([intro, perc_sentence, body])
 
     if share_max > cluster_threshold and vmax >= dom_high:
@@ -1223,11 +1320,17 @@ def summarize_constraint_with_templates(
     if not labels or not freqs:
         if violated_counts:
             min_v, max_v = min(violated_counts), max(violated_counts)
-            spread_sentence = (
-                f"They differ widely in how often they are violated. "
-                f"Some rules cause almost no issues, while others are violated up to {max_v} times. "
-                "This variance may point to inconsistent data entries or different data sources of mixed quality."
-            )
+            if _is_wide_spread(violated_counts):
+                spread_sentence = (
+                    f"They differ widely in how often they are violated. "
+                    f"Some rules cause almost no issues, while others are violated up to {max_v} times. "
+                    "This variance may point to inconsistent data entries or different data sources of mixed quality."
+                )
+            else:
+                spread_sentence = (
+                    f"Violation counts range from {min_v} to {max_v}. "
+                    "The counts are relatively consistent across constraint components, suggesting similar violation rates."
+                )
             return " ".join([intro, perc_sentence, spread_sentence])
         return " ".join([intro, perc_sentence])
 
@@ -1288,11 +1391,18 @@ def summarize_constraint_with_templates(
     has_outliers = vmax > outlier_threshold and outlier_threshold > 0
 
     if dom_share < cluster_threshold:
-        body = (
-            f"They differ widely in how often they are violated. "
-            f"Some rules cause almost no issues, while others are violated up to {vmax} times. "
-            "This variance may point to inconsistent data entries or different data sources of mixed quality."
-        )
+        if _is_wide_spread(violated_counts):
+            body = (
+                f"They differ widely in how often they are violated. "
+                f"Some rules cause almost no issues, while others are violated up to {vmax} times. "
+                "This variance may point to inconsistent data entries or different data sources of mixed quality."
+            )
+        else:
+            body = (
+                f"Violation counts range from {vmin} to {vmax}. "
+                "The counts are relatively consistent across constraint components, suggesting similar violation rates, "
+                "though the distribution is not concentrated in a single range."
+            )
         return " ".join([intro, perc_sentence, body])
 
     if share_max > cluster_threshold and vmax >= dom_high:

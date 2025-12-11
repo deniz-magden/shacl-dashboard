@@ -2,7 +2,10 @@ import subprocess
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import ENDPOINT_URL, SHAPES_GRAPH_URI, VALIDATION_REPORT_URI, SHACL_FEATURES
+from config import (
+    ENDPOINT_URL, SHAPES_GRAPH_URI, VALIDATION_REPORT_URI, SHACL_FEATURES,
+    ISQL_USERNAME, ISQL_PASSWORD, ISQL_PORT
+)
 from SPARQLWrapper import SPARQLWrapper, JSON
 
 """
@@ -30,7 +33,7 @@ Configuration:
 #SHAPES_GRAPH_URI = "http://ex.org/ShapesGraph"
 #VALIDATION_REPORT_URI = "http://ex.org/ValidationReport"
 
-def load_graphs(directory: str, shapes_file: str, report_file: str, isql_port: str = "1111", username: str = "dba", password: str = "dba"):
+def load_graphs(directory: str, shapes_file: str, report_file: str, isql_port: str = None, username: str = None, password: str = None):
     """
     Load two RDF files (ShapesGraph and ValidationReport) into Virtuoso using ISQL.
 
@@ -53,6 +56,14 @@ def load_graphs(directory: str, shapes_file: str, report_file: str, isql_port: s
     # Validate input values
     if not all(arg.strip() for arg in [directory, shapes_file, report_file]):
         raise ValueError("Directory, shapes_file, and report_file cannot be empty strings.")
+
+    # Use config defaults if not provided
+    if isql_port is None:
+        isql_port = ISQL_PORT
+    if username is None:
+        username = ISQL_USERNAME
+    if password is None:
+        password = ISQL_PASSWORD
 
     # Construct ISQL command for loading RDF files
     isql_command = f"""
