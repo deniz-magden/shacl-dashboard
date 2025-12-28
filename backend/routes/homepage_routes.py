@@ -14,6 +14,7 @@ from functions import (
     distribution_of_violations_per_focus_node,
     generate_validation_details_report
 )
+from functions.homepage_service import get_distribution_of_violations_per_constraint_component
 
 """
 Homepage Routes Module
@@ -166,6 +167,20 @@ def get_distribution_of_violations_per_focus_node():
     try:
         validation_report_uri = request.args.get("validation_report_uri", default="http://ex.org/ValidationReport")
         result = distribution_of_violations_per_focus_node(validation_report_uri)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
+# Route to get distribution of violations per constraint component
+@homepage_bp.route('/homepage/violations/distribution/constraint-component', methods=['GET'])
+def get_distribution_of_violations_per_constraint_component():
+    """
+    API to get the distribution of violations per constraint component.
+    """
+    try:
+        validation_report_uri = request.args.get("validation_report_uri", default="http://ex.org/ValidationReport")
+        result = get_distribution_of_violations_per_constraint_component(validation_report_uri)
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400

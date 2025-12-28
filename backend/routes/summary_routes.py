@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from flask import Blueprint, request, jsonify
 
 from functions import homepage_service, shapes_overview_service
@@ -16,7 +17,7 @@ from functions.summary_service import (
     # shapes_property_contribution,  # TODO: Not yet implemented
 )
 
-summary_bp = Blueprint("summary_bp", __name__, url_prefix="/api/summaries")
+summary_bp = Blueprint("summary_bp", __name__)
 
 
 def _level_param() -> str:
@@ -40,12 +41,11 @@ def _include_category_param() -> bool:
     include_category = request.args.get("include_category", "true").strip().lower()
     return include_category in ("true", "1", "yes")
 
-
 # ============================================================
 #                          HOME VIEW
 # ============================================================
 
-@summary_bp.get("/home/nodeshape")
+@summary_bp.route("/home/nodeshape", methods=['GET'])
 def summarize_home_nodeshape():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -75,7 +75,7 @@ def summarize_home_nodeshape():
     })
 
 
-@summary_bp.get("/home/path")
+@summary_bp.route("/home/path", methods=['GET'])
 def summarize_home_path():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -105,7 +105,7 @@ def summarize_home_path():
     })
 
 
-@summary_bp.get("/home/focus-node")
+@summary_bp.route("/home/focus-node", methods=['GET'])
 def summarize_home_focus():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -135,7 +135,7 @@ def summarize_home_focus():
     })
 
 
-@summary_bp.get("/home/constraint")
+@summary_bp.route("/home/constraint", methods=['GET'])
 def summarize_home_constraint():    
     level = _level_param()
     use_llm = _use_llm_param()
@@ -165,7 +165,7 @@ def summarize_home_constraint():
     })
 
 
-@summary_bp.get("/home/path/top")
+@summary_bp.route("/home/path/top", methods=['GET'])
 def summarize_home_path_top():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -201,7 +201,7 @@ def summarize_home_path_top():
 #                       SHAPES VIEW
 # ============================================================
 
-@summary_bp.get("/shapes/distribution-constraint")
+@summary_bp.route("/shapes/distribution-constraint", methods=['GET'])
 def summarize_shapes_distribution():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -235,7 +235,7 @@ def summarize_shapes_distribution():
     })
 
 
-@summary_bp.get("/shapes/correlation")
+@summary_bp.route("/shapes/correlation", methods=['GET'])
 def summarize_shapes_correlation():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -265,7 +265,7 @@ def summarize_shapes_correlation():
     })
 
 
-@summary_bp.get("/shapes/diversity-intensity")
+@summary_bp.route("/shapes/diversity-intensity", methods=['GET'])
 def summarize_shapes_diversity_intensity_route():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -292,6 +292,28 @@ def summarize_shapes_diversity_intensity_route():
         "summary": text,
         "use_llm": use_llm,
         "include_category": include_category
+    })
+
+
+# Debug endpoint to test API key visibility
+@summary_bp.route("/debug/api-key", methods=['GET'])
+def debug_api_key():
+    """Debug endpoint to check if API key is visible to backend"""
+    env_key = os.getenv("OPENAI_API_KEY", "")
+    param_key = request.args.get("llm_api_key", None)
+    
+    return jsonify({
+        "environment_variable": {
+            "set": env_key != "",
+            "preview": env_key[:10] + "..." if env_key else None,
+            "length": len(env_key) if env_key else 0
+        },
+        "query_parameter": {
+            "provided": param_key is not None,
+            "preview": param_key[:10] + "..." if param_key else None,
+            "length": len(param_key) if param_key else 0
+        },
+        "recommendation": "Use query parameter (llm_api_key) if environment variable is not set"
     })
 
 
