@@ -170,6 +170,8 @@ def category_display_word(category: str, plural: bool = False) -> str:
     if plural:
         return _p.plural(base)
     return base
+    
+
 
 
 def clean_label(raw: str) -> str:
@@ -191,6 +193,25 @@ def clean_label(raw: str) -> str:
             toks.append(t.text.lower())
     out = re.sub(r"\s+", " ", " ".join(toks)).strip()
     return out or raw
+
+
+def format_name_for_text(name: str) -> str:
+    """
+    Format a name/label for insertion into text with quotes and capitalization.
+    
+    Examples:
+      "type" -> "'Type'"
+      "Person Shape" -> "'Person Shape'"
+      "in constraint component" -> "'In Constraint Component'"
+    """
+    if not name:
+        return ""
+    # Capitalize first letter of each word
+    words = name.split()
+    capitalized_words = [word.capitalize() for word in words]
+    capitalized_name = " ".join(capitalized_words)
+    # Add quotes
+    return f"'{capitalized_name}'"
 
 
 def clean_pairs(pairs: Iterable[tuple[str, int]]) -> List[tuple[str, int]]:
@@ -262,7 +283,31 @@ def dominant_category_llm(
             return _llm_cache[cache_key]
     
     try:
-        client = OpenAI(api_key=api_key, timeout=timeout)
+        # Initialize OpenAI client
+        try:
+            import httpx
+            http_client = httpx.Client(timeout=timeout)
+            client = OpenAI(api_key=api_key, http_client=http_client)
+        except (ImportError, TypeError):
+            import os as os_module
+            proxy_backup = {}
+            for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']:
+                if var in os_module.environ:
+                    proxy_backup[var] = os_module.environ[var]
+                    del os_module.environ[var]
+            
+            try:
+                # Set API key via environment variable
+                old_key = os_module.environ.get('OPENAI_API_KEY')
+                os_module.environ['OPENAI_API_KEY'] = api_key
+                client = OpenAI()
+            finally:
+                for var, value in proxy_backup.items():
+                    os_module.environ[var] = value
+                if old_key:
+                    os_module.environ['OPENAI_API_KEY'] = old_key
+                elif 'OPENAI_API_KEY' in os_module.environ:
+                    del os_module.environ['OPENAI_API_KEY']
         
         # Clean labels for better context
         cleaned_labels = [clean_label(label) for label in labels_list]
@@ -331,7 +376,13 @@ Respond with ONLY the category name (1-3 words), nothing else. Use lowercase."""
             
     except Exception as e:
         # On any error, return None to fallback to keyword-based approach
-        print(f"LLM category detection failed: {e}", file=sys.stderr)
+        error_type = type(e).__name__
+        error_msg = str(e)
+        print(f"LLM category detection failed: {error_type}: {error_msg}", file=sys.stderr)
+        print(f"  API key provided: {'Yes' if api_key else 'No'}", file=sys.stderr)
+        if api_key:
+            print(f"  API key starts with: {api_key[:7]}...", file=sys.stderr)
+        print(f"  Labels count: {len(labels_list)}", file=sys.stderr)
         return None
 
 
@@ -355,10 +406,29 @@ def _example_terms(labels: Iterable[str], category: str, k: int = 2) -> List[str
     return examples
 
 
-def _percentage(part: int, whole: int) -> float:
+def _percentage(part: int, whole: int, level: str = "high") -> float:
+    """
+    Calculate percentage with rounding based on level.
+    High level: round to 0 decimal places (94.4% -> 94%)
+    Low level: round to 1 decimal place (94.4%)
+    """
     if whole <= 0:
         return 0.0
-    return round(100.0 * part / whole, 1)
+    percentage = 100.0 * part / whole
+    if level == "high":
+        return round(percentage, 0)  # Round to 0 decimals for simplicity
+    return round(percentage, 1)  # Round to 1 decimal for low level
+
+
+def _format_percentage(perc: float, level: str = "high") -> str:
+    """
+    Format percentage as string based on level.
+    High level: format as integer (94.0 -> "94")
+    Low level: format with 1 decimal (94.4 -> "94.4")
+    """
+    if level == "high":
+        return str(int(perc))  # Format as integer for high level
+    return f"{perc:.1f}"  # Format with 1 decimal for low level
 
 
 def adaptive_thresholds(data_size: int) -> Tuple[float, float]:
@@ -387,6 +457,9 @@ def adaptive_thresholds(data_size: int) -> Tuple[float, float]:
         cluster_threshold = 0.35
     
     return outlier_multiplier, cluster_threshold
+    
+
+
 
 
 def _is_wide_spread(violated_counts: List[int], min_threshold_ratio: float = 0.3) -> bool:
@@ -515,6 +588,15 @@ def summarize_nodeshape_with_templates(
                 use_semantic = True
             else:
                 # Fallback to keyword-based if LLM fails
+                # Log warning if LLM was requested but failed
+                if use_llm:
+                    print(f"Warning: LLM category detection failed or returned None. Falling back to keyword-based classification.", file=sys.stderr)
+                    if not llm_api_key and not os.getenv("OPENAI_API_KEY"):
+                        print(f"  → No API key provided (neither llm_api_key parameter nor OPENAI_API_KEY env var)", file=sys.stderr)
+                    elif llm_api_key:
+                        print(f"  → API key provided via parameter (starts with: {llm_api_key[:7]}...)", file=sys.stderr)
+                    elif os.getenv("OPENAI_API_KEY"):
+                        print(f"  → API key from environment variable (starts with: {os.getenv('OPENAI_API_KEY', '')[:7]}...)", file=sys.stderr)
                 dom_category = dominant_category(labels_ns)
                 use_semantic = dom_category != "generic"
                 if use_semantic:
@@ -556,8 +638,8 @@ def summarize_nodeshape_with_templates(
     if violated_shapes == 0:
         return intro + " No node shapes are violated."
     else:
-        perc = _percentage(violated_shapes, total_shapes)
-        perc_sentence = f"{perc}% of node shapes are violated."
+        perc = _percentage(violated_shapes, total_shapes, level)
+        perc_sentence = f"{_format_percentage(perc, level)}% of node shapes are violated."
 
     dist = homepage_service.distribution_of_violations_per_shape(
         shapes_graph_uri=shapes_graph_uri,
@@ -595,7 +677,7 @@ def summarize_nodeshape_with_templates(
     for dom_label in dom_labels:
         try:
             low_s, high_s = re.split(r"[-–]", dom_label)
-            dom_range = f"{int(low_s)}–{int(high_s)}"
+            dom_range = f"{int(low_s)}-{int(high_s)}"
             dom_high = int(high_s)
             dom_ranges.append(dom_range)
             dom_highs.append(dom_high)
@@ -633,7 +715,8 @@ def summarize_nodeshape_with_templates(
         max_indices_count = len(max_indices)
     else:
         most_violated_name, share_max = "", 0.0
-        max_indices_count = 0
+        max_indices_count = 0,
+    
 
     # Use adaptive thresholds based on data size
     outlier_multiplier, cluster_threshold = adaptive_thresholds(total_shapes)
@@ -657,14 +740,15 @@ def summarize_nodeshape_with_templates(
 
     # Use adaptive threshold for share_max check
     if share_max > cluster_threshold and vmax >= dom_high:
-        perc_out = _percentage(max_val, sum(counts) or 1)
+        perc_out = _percentage(max_val, sum(counts) or 1, level)
         if len(dom_ranges) == 1:
             range_text = f"the range of {dom_range_str}"
         else:
             range_text = f"the ranges of {dom_range_str}"
+        formatted_name = format_name_for_text(most_violated_name)
         body = (
             f"While most of them fall into {range_text} violations, "
-            f"the shape{'s' if max_indices_count > 1 else ''} {most_violated_name} {'are' if max_indices_count > 1 else 'is'} responsible for about {perc_out}% of all issues and should be reviewed first."
+            f"the shape{'s' if max_indices_count > 1 else ''} {formatted_name} {'are' if max_indices_count > 1 else 'is'} responsible for about {_format_percentage(perc_out, level)}% of all issues and should be reviewed first."
         )
         return " ".join([intro, perc_sentence, body])
 
@@ -790,8 +874,8 @@ def summarize_path_with_templates(
     if violated_paths == 0:
         return intro + " No paths are violated."
     else:
-        perc = _percentage(violated_paths, total_paths)
-        perc_sentence = f"{perc}% of paths are violated."
+        perc = _percentage(violated_paths, total_paths, level)
+        perc_sentence = f"{_format_percentage(perc, level)}% of paths are violated."
 
     dist = homepage_service.distribution_of_violations_per_path(validation_report_uri=report_uri)
     labels = dist.get("labels", [])
@@ -827,7 +911,7 @@ def summarize_path_with_templates(
     for dom_label in dom_labels:
         try:
             low_s, high_s = re.split(r"[-–]", dom_label)
-            dom_range = f"{int(low_s)}–{int(high_s)}"
+            dom_range = f"{int(low_s)}-{int(high_s)}"
             dom_high = int(high_s)
             dom_ranges.append(dom_range)
             dom_highs.append(dom_high)
@@ -886,14 +970,15 @@ def summarize_path_with_templates(
         return " ".join([intro, perc_sentence, body])
 
     if share_max > cluster_threshold and vmax >= dom_high:
-        perc_out = _percentage(max_val, sum(counts) or 1)
+        perc_out = _percentage(max_val, sum(counts) or 1, level)
         if len(dom_ranges) == 1:
             range_text = f"the range of {dom_range_str}"
         else:
             range_text = f"the ranges of {dom_range_str}"
+        formatted_name = format_name_for_text(most_violated_name)
         body = (
             f"While most of them fall into {range_text} violations, "
-            f"the path{'s' if max_indices_count > 1 else ''} {most_violated_name} {'are' if max_indices_count > 1 else 'is'} responsible for about {perc_out}% of all issues and should be reviewed first."
+            f"the path{'s' if max_indices_count > 1 else ''} {formatted_name} {'are' if max_indices_count > 1 else 'is'} responsible for about {_format_percentage(perc_out, level)}% of all issues and should be reviewed first."
         )
         return " ".join([intro, perc_sentence, body])
 
@@ -1042,8 +1127,8 @@ def summarize_focusnode_with_templates(
     if violated_nodes == 0:
         return intro + " No focus nodes are violated."
     else:
-        perc = _percentage(violated_nodes, total_nodes)
-        perc_sentence = f"{perc}% of focus nodes are violated."
+        perc = _percentage(violated_nodes, total_nodes, level)
+        perc_sentence = f"{_format_percentage(perc, level)}% of focus nodes are violated."
 
     dist = homepage_service.distribution_of_violations_per_focus_node(validation_report_uri=report_uri)
     labels = dist.get("labels", [])
@@ -1079,7 +1164,7 @@ def summarize_focusnode_with_templates(
     for dom_label in dom_labels:
         try:
             low_s, high_s = re.split(r"[-–]", dom_label)
-            dom_range = f"{int(low_s)}–{int(high_s)}"
+            dom_range = f"{int(low_s)}-{int(high_s)}"
             dom_high = int(high_s)
             dom_ranges.append(dom_range)
             dom_highs.append(dom_high)
@@ -1138,14 +1223,15 @@ def summarize_focusnode_with_templates(
         return " ".join([intro, perc_sentence, body])
 
     if share_max > cluster_threshold and vmax >= dom_high:
-        perc_out = _percentage(max_val, sum(counts) or 1)
+        perc_out = _percentage(max_val, sum(counts) or 1, level)
         if len(dom_ranges) == 1:
             range_text = f"a range of {dom_range_str}"
         else:
             range_text = f"ranges of {dom_range_str}"
+        formatted_name = format_name_for_text(most_violated_name)
         body = (
             f"Although most of them fall into {range_text} violations, "
-            f"the node{'s' if max_indices_count > 1 else ''} {most_violated_name} {'are' if max_indices_count > 1 else 'is'} responsible for most issues out of all nodes and should be reviewed first."
+            f"the node{'s' if max_indices_count > 1 else ''} {formatted_name} {'are' if max_indices_count > 1 else 'is'} responsible for most issues out of all nodes and should be reviewed first."
         )
         return " ".join([intro, perc_sentence, body])
 
@@ -1308,8 +1394,8 @@ def summarize_constraint_with_templates(
     if violated_constraints == 0:
         return intro + " No constraint components are violated."
     else:
-        perc = _percentage(violated_constraints, total_constraints)
-        perc_sentence = f"{perc}% of constraint components are violated."
+        perc = _percentage(violated_constraints, total_constraints, level)
+        perc_sentence = f"{_format_percentage(perc, level)}% of constraint components are violated."
 
     dist = homepage_service.get_distribution_of_violations_per_constraint_component(
         validation_report_uri=report_uri
@@ -1347,7 +1433,7 @@ def summarize_constraint_with_templates(
     for dom_label in dom_labels:
         try:
             low_s, high_s = re.split(r"[-–]", dom_label)
-            dom_range = f"{int(low_s)}–{int(high_s)}"
+            dom_range = f"{int(low_s)}-{int(high_s)}"
             dom_high = int(high_s)
             dom_ranges.append(dom_range)
             dom_highs.append(dom_high)
@@ -1406,14 +1492,15 @@ def summarize_constraint_with_templates(
         return " ".join([intro, perc_sentence, body])
 
     if share_max > cluster_threshold and vmax >= dom_high:
-        perc_out = _percentage(max_val, sum(counts) or 1)
+        perc_out = _percentage(max_val, sum(counts) or 1, level)
         if len(dom_ranges) == 1:
             range_text = f"range of {dom_range_str}"
         else:
             range_text = f"ranges of {dom_range_str}"
+        formatted_name = format_name_for_text(most_violated_name)
         body = (
             f"Most rule types contribute to the violations with counts in {range_text}. "
-            f"However {perc_out}% of all violations stem from the constraint component{'s' if max_indices_count > 1 else ''} {most_violated_name}, "
+            f"However {_format_percentage(perc_out, level)}% of all violations stem from the constraint component{'s' if max_indices_count > 1 else ''} {formatted_name}, "
             "meaning that this requirement is frequently not met. "
             "This indicates a systematic issue, such as missing values or incorrect formats."
         )
@@ -1518,7 +1605,8 @@ def home_paths_top(
 
     top_paths = sorted_paths[:top_k]
     top_violations = sum(p.get("NumViolations", 0) for p in top_paths)
-    top_perc = _percentage(top_violations, total_violations)
+    top_perc = _percentage(top_violations, total_violations, level)
+    top_perc_formatted = _format_percentage(top_perc, level)
     
     top_labels = [clean_label(p.get("PathName", "")) for p in top_paths]
     
@@ -1545,7 +1633,7 @@ def home_paths_top(
     if level == "high":
         intro = (
             f"This view lists the data fields that are responsible for most of the violations. "
-            f"The top {top_k} paths ({', '.join(top_labels)}) account for {top_perc}% of all {total_violations} violations."
+            f"The top {top_k} paths ({', '.join(top_labels)}) account for {top_perc_formatted}% of all {total_violations} violations."
         )
         if use_semantic:
             intro += category_description
@@ -1554,13 +1642,13 @@ def home_paths_top(
     else:
         intro = (
             f"This top list shows the sh:resultPath values with the highest violation counts. "
-            f"Total violations: {total_violations}. Top {top_k} paths account for {top_perc}%:"
+            f"Total violations: {total_violations}. Top {top_k} paths account for {top_perc_formatted}%:"
         )
         for i, path in enumerate(top_paths, 1):
             path_label = clean_label(path.get("PathName", ""))
             violations = path.get("NumViolations", 0)
-            perc = _percentage(violations, total_violations)
-            intro += f" {i}. {path_label}: {violations} violations ({perc}%)."
+            perc = _percentage(violations, total_violations, level)
+            intro += f" {i}. {path_label}: {violations} violations ({_format_percentage(perc, level)}%)."
 
     return intro
 
@@ -1704,7 +1792,7 @@ def summarize_shape_constraint_distribution_templates(
     for dom_label in dom_labels:
         try:
             low_s, high_s = re.split(r"[-–]", dom_label)
-            dom_range = f"{float(low_s):.2f}–{float(high_s):.2f}"
+            dom_range = f"{float(low_s):.2f}-{float(high_s):.2f}"
             dom_high = float(high_s)
             dom_ranges.append(dom_range)
             dom_highs.append(dom_high)
@@ -1750,7 +1838,7 @@ def summarize_shape_constraint_distribution_templates(
         else:
             range_text = f"the ranges of {dom_range_str}"
         body = (
-            f"Most node shapes ({_percentage(int(max_freq), total_shapes)}%) "
+            f"Most node shapes ({_format_percentage(_percentage(int(max_freq), total_shapes, level), level)}%) "
             f"fall into {range_text} violations per constraint. "
             "This indicates a consistent pattern where most shapes have similar violation-to-constraint ratios, "
             "suggesting uniform constraint effectiveness across the shapes graph."
@@ -1763,7 +1851,7 @@ def summarize_shape_constraint_distribution_templates(
     else:
         range_text = f"the ranges of {dom_range_str}"
     body = (
-        f"A significant portion ({_percentage(int(max_freq), total_shapes)}%) of node shapes "
+        f"A significant portion ({_format_percentage(_percentage(int(max_freq), total_shapes, level), level)}%) of node shapes "
         f"fall into {range_text} violations per constraint. "
         "While there is some concentration, the distribution also shows variation, "
         "indicating that some shapes have better constraint compliance than others."
@@ -1918,8 +2006,6 @@ def summarize_shapes_correlation_templates(
     total_shapes = len(correlation_data)
     avg_constraints = np.mean(constraints) if constraints else 0
     avg_ratio = np.mean(ratios) if ratios else 0
-    median_constraints = np.median(constraints) if constraints else 0
-    median_ratio = np.median(ratios) if ratios else 0
     
     # Calculate correlation coefficient
     if len(constraints) > 1 and np.std(constraints) > 0 and np.std(ratios) > 0:
@@ -1927,17 +2013,26 @@ def summarize_shapes_correlation_templates(
     else:
         correlation = 0.0
     
-    # Identify quadrants (median split)
-    high_constraints = [i for i, c in enumerate(constraints) if c >= median_constraints]
-    low_constraints = [i for i, c in enumerate(constraints) if c < median_constraints]
-    high_ratios = [i for i, r in enumerate(ratios) if r >= median_ratio]
-    low_ratios = [i for i, r in enumerate(ratios) if r < median_ratio]
+    # Identify quadrants using range midpoints (matching frontend logic)
+    # Frontend uses: xMid = (xMin + xMax) / 2, yMid = (yMin + yMax) / 2
+    x_min = min(constraints) if constraints else 0
+    x_max = max(constraints) if constraints else 0
+    y_min = min(ratios) if ratios else 0
+    y_max = max(ratios) if ratios else 0
     
-    # Quadrant analysis
-    q1 = len([i for i in high_constraints if i in high_ratios])  # High constraints, High ratio
-    q2 = len([i for i in low_constraints if i in high_ratios])   # Low constraints, High ratio
-    q3 = len([i for i in low_constraints if i in low_ratios])    # Low constraints, Low ratio
-    q4 = len([i for i in high_constraints if i in low_ratios])  # High constraints, Low ratio
+    x_mid = (x_min + x_max) / 2
+    y_mid = (y_min + y_max) / 2
+    
+    high_constraints_indices = [i for i, c in enumerate(constraints) if c >= x_mid]
+    low_constraints_indices = [i for i, c in enumerate(constraints) if c < x_mid]
+    high_ratios_indices = [i for i, r in enumerate(ratios) if r >= y_mid]
+    low_ratios_indices = [i for i, r in enumerate(ratios) if r < y_mid]
+    
+    # Quadrant analysis - count shapes in each quadrant
+    q1 = len(set(high_constraints_indices) & set(high_ratios_indices))  # High constraints, High ratio
+    q2 = len(set(low_constraints_indices) & set(high_ratios_indices))   # Low constraints, High ratio
+    q3 = len(set(low_constraints_indices) & set(low_ratios_indices))    # Low constraints, Low ratio
+    q4 = len(set(high_constraints_indices) & set(low_ratios_indices))   # High constraints, Low ratio
     
     if level == "high":
         intro = (
@@ -1996,7 +2091,7 @@ def summarize_shapes_correlation_templates(
         f"The analysis shows a {corr_interpretation} {corr_direction} correlation "
         f"(r={correlation:.2f}), indicating {corr_strength} relationship where {corr_meaning}. "
         f"On average, node shapes have {avg_constraints:.1f} constraints with an average ratio of {avg_ratio:.2f} violations per constraint. "
-        f"Most shapes ({dominant_quadrant[0]} out of {total_shapes}, {_percentage(dominant_quadrant[0], total_shapes)}%) "
+        f"Most shapes ({dominant_quadrant[0]} out of {total_shapes}, {_format_percentage(_percentage(dominant_quadrant[0], total_shapes, level), level)}%) "
         f"fall into the quadrant with {dominant_quadrant[1]}, suggesting that "
     )
     
@@ -2174,8 +2269,6 @@ def summarize_shapes_diversity_intensity_templates(
     # Calculate statistics
     avg_entropy = np.mean(entropies) if entropies else 0
     avg_ratio = np.mean(ratios) if ratios else 0
-    median_entropy = np.median(entropies) if entropies else 0
-    median_ratio = np.median(ratios) if ratios else 0
     max_entropy = max(entropies) if entropies else 0
     min_entropy = min(entropies) if entropies else 0
     
@@ -2185,17 +2278,26 @@ def summarize_shapes_diversity_intensity_templates(
     else:
         correlation = 0.0
     
-    # Identify quadrants (median split)
-    high_entropy = [i for i, e in enumerate(entropies) if e >= median_entropy]
-    low_entropy = [i for i, e in enumerate(entropies) if e < median_entropy]
-    high_ratio = [i for i, r in enumerate(ratios) if r >= median_ratio]
-    low_ratio = [i for i, r in enumerate(ratios) if r < median_ratio]
+    # Identify quadrants using range midpoints (matching frontend logic)
+    # Frontend uses: xMid = (xMin + xMax) / 2, yMid = (yMin + yMax) / 2
+    x_min = min(entropies) if entropies else 0
+    x_max = max(entropies) if entropies else 0
+    y_min = min(ratios) if ratios else 0
+    y_max = max(ratios) if ratios else 0
     
-    # Quadrant analysis
-    q1 = len([i for i in high_entropy if i in high_ratio])  # High diversity, High intensity
-    q2 = len([i for i in low_entropy if i in high_ratio])    # Low diversity, High intensity
-    q3 = len([i for i in low_entropy if i in low_ratio])    # Low diversity, Low intensity
-    q4 = len([i for i in high_entropy if i in low_ratio])   # High diversity, Low intensity
+    x_mid = (x_min + x_max) / 2
+    y_mid = (y_min + y_max) / 2
+    
+    high_entropy_indices = [i for i, e in enumerate(entropies) if e >= x_mid]
+    low_entropy_indices = [i for i, e in enumerate(entropies) if e < x_mid]
+    high_ratio_indices = [i for i, r in enumerate(ratios) if r >= y_mid]
+    low_ratio_indices = [i for i, r in enumerate(ratios) if r < y_mid]
+    
+    # Quadrant analysis - count shapes in each quadrant
+    q1 = len(set(high_entropy_indices) & set(high_ratio_indices))  # High diversity, High intensity
+    q2 = len(set(low_entropy_indices) & set(high_ratio_indices))    # Low diversity, High intensity
+    q3 = len(set(low_entropy_indices) & set(low_ratio_indices))    # Low diversity, Low intensity
+    q4 = len(set(high_entropy_indices) & set(low_ratio_indices))   # High diversity, Low intensity
     
     # Entropy interpretation
     # Shannon entropy ranges: 0 (no diversity, all violations from one constraint type)
@@ -2257,12 +2359,22 @@ def summarize_shapes_diversity_intensity_templates(
     else:
         corr_meaning = "no clear relationship between violation diversity and intensity"
     
-    # Quadrant insights
-    dominant_quadrant = max([(q1, "high diversity, high intensity"),
+    # Quadrant insights - find the quadrant with the most shapes
+    # Debug: print quadrant counts to verify
+    quadrant_counts = [
+        (q1, "high diversity, high intensity"),
                             (q2, "low diversity, high intensity"),
                             (q3, "low diversity, low intensity"),
-                            (q4, "high diversity, low intensity")],
-                           key=lambda x: x[0])
+        (q4, "high diversity, low intensity")
+    ]
+    dominant_quadrant = max(quadrant_counts, key=lambda x: x[0])
+    
+    # Verify all quadrants sum to total_shapes (for debugging)
+    total_in_quadrants = q1 + q2 + q3 + q4
+    if total_in_quadrants != total_shapes:
+        # This shouldn't happen, but if it does, log it
+        import sys
+        print(f"Warning: Quadrant counts don't sum to total shapes. Total: {total_shapes}, Sum: {total_in_quadrants}", file=sys.stderr)
     
     body = (
         f"The analysis reveals {entropy_level} average diversity (entropy={avg_entropy:.2f}), "
@@ -2270,7 +2382,7 @@ def summarize_shapes_diversity_intensity_templates(
         f"The average violation intensity is {avg_ratio:.2f} violations per constraint. "
         f"There is a {corr_interpretation} correlation (r={correlation:.2f}) between diversity and intensity, "
         f"suggesting that {corr_meaning}. "
-        f"Most shapes ({dominant_quadrant[0]} out of {total_shapes}, {_percentage(dominant_quadrant[0], total_shapes)}%) "
+        f"Most shapes ({dominant_quadrant[0]} out of {total_shapes}, {_format_percentage(_percentage(dominant_quadrant[0], total_shapes, level), level)}%) "
         f"fall into the quadrant with {dominant_quadrant[1]}, which indicates that "
     )
     
@@ -2301,6 +2413,7 @@ def summarize_shapes_diversity_intensity_templates(
     
     # Add entropy-specific insights
     if level == "high":
+        median_entropy = np.median(entropies) if entropies else 0
         entropy_insight = (
             f" The entropy range spans from {min_entropy:.2f} to {max_entropy:.2f}, "
             f"with a median of {median_entropy:.2f}. "
