@@ -45,7 +45,7 @@ def _include_category_param() -> bool:
 #                          HOME VIEW
 # ============================================================
 
-@summary_bp.route("/home/nodeshape", methods=['GET'])
+@summary_bp.route("/summaries/home/nodeshape", methods=['GET'])
 def summarize_home_nodeshape():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -75,7 +75,7 @@ def summarize_home_nodeshape():
     })
 
 
-@summary_bp.route("/home/path", methods=['GET'])
+@summary_bp.route("/summaries/home/path", methods=['GET'])
 def summarize_home_path():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -105,7 +105,7 @@ def summarize_home_path():
     })
 
 
-@summary_bp.route("/home/focus-node", methods=['GET'])
+@summary_bp.route("/summaries/home/focus-node", methods=['GET'])
 def summarize_home_focus():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -135,7 +135,7 @@ def summarize_home_focus():
     })
 
 
-@summary_bp.route("/home/constraint", methods=['GET'])
+@summary_bp.route("/summaries/home/constraint", methods=['GET'])
 def summarize_home_constraint():    
     level = _level_param()
     use_llm = _use_llm_param()
@@ -165,7 +165,7 @@ def summarize_home_constraint():
     })
 
 
-@summary_bp.route("/home/path/top", methods=['GET'])
+@summary_bp.route("/summaries/home/path/top", methods=['GET'])
 def summarize_home_path_top():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -201,7 +201,7 @@ def summarize_home_path_top():
 #                       SHAPES VIEW
 # ============================================================
 
-@summary_bp.route("/shapes/distribution-constraint", methods=['GET'])
+@summary_bp.route("/summaries/shapes/distribution-constraint", methods=['GET'])
 def summarize_shapes_distribution():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -235,7 +235,7 @@ def summarize_shapes_distribution():
     })
 
 
-@summary_bp.route("/shapes/correlation", methods=['GET'])
+@summary_bp.route("/summaries/shapes/correlation", methods=['GET'])
 def summarize_shapes_correlation():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -265,7 +265,7 @@ def summarize_shapes_correlation():
     })
 
 
-@summary_bp.route("/shapes/diversity-intensity", methods=['GET'])
+@summary_bp.route("/summaries/shapes/diversity-intensity", methods=['GET'])
 def summarize_shapes_diversity_intensity_route():
     level = _level_param()
     use_llm = _use_llm_param()
@@ -296,7 +296,7 @@ def summarize_shapes_diversity_intensity_route():
 
 
 # Debug endpoint to test API key visibility
-@summary_bp.route("/debug/api-key", methods=['GET'])
+@summary_bp.route("/summaries/debug/api-key", methods=['GET'])
 def debug_api_key():
     """Debug endpoint to check if API key is visible to backend"""
     env_key = os.getenv("OPENAI_API_KEY", "")

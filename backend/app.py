@@ -35,11 +35,6 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Register all API blueprints with /api prefix
 from routes.summary_routes import summary_bp
 for blueprint in blueprints:
-    if blueprint == summary_bp:
-        # Register summary blueprint with /api/summaries prefix
-        app.register_blueprint(blueprint, url_prefix='/api/summaries')
-    else:
-        # Register other blueprints with /api prefix
     app.register_blueprint(blueprint, url_prefix='/api')
 
 

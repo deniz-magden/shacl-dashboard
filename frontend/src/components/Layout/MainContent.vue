@@ -51,7 +51,7 @@
         class="card bg-white shadow-lg rounded-lg p-6"
       />
     </div> -->
-<!-- 
+<!--
     <div class="grid grid-cols-3 gap-6 mb-6">
       <PieChart
         :title="'Violations per Shape'"
@@ -81,6 +81,7 @@
         :xAxisLabel="'Number of Violations (Bins)'"
         :yAxisLabel="'Frequency'"
         :data="shapeHistogramData"
+        :explanationText="summaries.shape.value"
       />
 
       <!-- Histogram for Violations per Path -->
@@ -89,6 +90,7 @@
         :xAxisLabel="'Number of Violations (Bins)'"
         :yAxisLabel="'Frequency'"
         :data="pathHistogramData"
+        :explanationText="summaries.path.value"
       />
 
       <!-- Histogram for Violations per Focus Node -->
@@ -97,13 +99,16 @@
         :xAxisLabel="'Number of Violations (Bins)'"
         :yAxisLabel="'Frequency'"
         :data="focusNodeHistogramData"
+        :explanationText="summaries.focusNode.value"
       />
 
+      <!-- Histogram for Violations per Constraint Component -->
       <HistogramChart
         :title="`<span style='color: rgba(10, 45, 87);; font-weight: bold;'>Violations per Constraint Component</span>`"
         :xAxisLabel="'Number of Violations (Bins)'"
         :yAxisLabel="'Frequency'"
         :data="constraintComponentHistogramData"
+        :explanationText="summaries.constraintComponent.value"
       />
     </div>
 
@@ -134,16 +139,17 @@
  * - Responsive container for the main application content.
  * - Adjusts to accommodate sidebar and navigation components.
  * - Contains padding and layout styling for content areas.
- * 
+ *
  * @returns {HTMLElement} A dashboard layout featuring a statistics section with key metrics
- * at the top, a visualization section with multiple histograms in the middle, and a 
+ * at the top, a visualization section with multiple histograms in the middle, and a
  * comprehensive data table showing validation details at the bottom.
  */
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import HistogramChart from "./../Charts/HistogramChart.vue";
 import PieChart from "./../Charts/PieChart.vue";
 import Tag from "./../Reusable/Tag.vue";
 import ViolationTable from "./../Reusable/ViolationTable.vue";
+import axios from "axios";
 
 const tags = [
   { title: "Total Violations", value: "27392", titleMaxViolated: "", maxViolated: "" },
@@ -205,6 +211,31 @@ const constraintComponentHistogramData = ref({
     },
   ],
 });
+
+let summaries = {
+  shape: ref("Loading ..."),
+  path: ref("Loading ..."),
+  focusNode: ref("Loading ..."),
+  constraintComponent: ref("Loading ..."),
+}
+
+async function fetchSummary(uri) {
+  try {
+    const response = await axios.get(`http://localhost:5000/api/${uri}`, {
+      params: {},
+    });
+    return response.data.summary;
+  } catch {
+    return "Error contacting backend";
+  }
+}
+
+onMounted(async () => {
+  summaries.shape.value = await fetchSummary("summaries/home/nodeshape");
+  summaries.path.value = await fetchSummary("summaries/home/path");
+  summaries.focusNode.value = await fetchSummary("summaries/home/focus-node");
+  summaries.constraintComponent.value = await fetchSummary("summaries/home/constraint");
+})
 
 </script>
 

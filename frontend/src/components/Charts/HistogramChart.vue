@@ -30,6 +30,7 @@
  * @prop {string} [title=''] - Title displayed above the chart
  * @prop {string} [xAxisLabel=''] - Label for the x-axis
  * @prop {string} [yAxisLabel=''] - Label for the y-axis
+ * @prop {string} [explanationText=''] - Text for explanation tooltip
  *
  * @dependencies
  * - vue (Composition API)
@@ -64,6 +65,10 @@ const props = defineProps({
       return value.labels && value.datasets;
     },
   },
+  explanationText: {
+    type: String,
+    required: true,
+  },
 });
 
 const histogramCanvas = ref(null);
@@ -80,7 +85,7 @@ onMounted(() => {
       ...props.data,
       datasets: props.data.datasets.map((dataset) => ({
         ...dataset,
-        backgroundColor: dataset.backgroundColor || chartTheme.colors.primary, 
+        backgroundColor: dataset.backgroundColor || chartTheme.colors.primary,
         borderColor: dataset.borderColor || chartTheme.colors.secondary,
         borderWidth: 1, // Border width
       })),
