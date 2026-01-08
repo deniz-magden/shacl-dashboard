@@ -207,8 +207,8 @@ def summarize_shapes_distribution():
     use_llm = _use_llm_param()
     include_category = _include_category_param()
     node_shape = request.args.get("node_shape")
-    if not node_shape:
-        return jsonify({"error": "node_shape is required"}), 400
+    # if not node_shape:
+        # return jsonify({"error": "node_shape is required"}), 400
     shapes_uri = request.args.get("shapes_graph_uri", default=None)
     report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
     
