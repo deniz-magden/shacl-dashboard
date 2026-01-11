@@ -29,14 +29,12 @@ VUE_SOURCE_FOLDER = os.path.abspath('../frontend')
 
 app = Flask(__name__, static_folder=STATIC_FOLDER, static_url_path='')  # Use the build output folder as the static folder
 
-# Enable CORS for all routes
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# Enable CORS for frontend-backend communication
+CORS(app)
 
-# Register all API blueprints with /api prefix
-from routes.summary_routes import summary_bp
+# Register blueprints for API routes
 for blueprint in blueprints:
-    app.register_blueprint(blueprint, url_prefix='/api')
-
+    app.register_blueprint(blueprint)
 
 # Function to build the frontend (Vue.js)
 def build_frontend():

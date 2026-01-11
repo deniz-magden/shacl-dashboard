@@ -307,21 +307,24 @@ let summaries = {
   diversity: ref("Loading ..."),
 }
 
-async function fetchSummary(uri) {
+async function fetchSummary(endpoint) {
   try {
-    const response = await axios.get(`http://localhost:5000/api/${uri}`, {
-      params: {},
-    });
-    return response.data.summary;
-  } catch {
-    return "Error contacting backend";
+    const response = await fetch(`http://localhost:5000${endpoint}?level=high`);
+    if (!response.ok) {
+      return "Error loading summary";
+    }
+    const data = await response.json();
+    return data.summary || "No summary available";
+  } catch (error) {
+    console.error(`Error fetching summary from ${endpoint}:`, error);
+    return "Error loading summary";
   }
 }
 
 onMounted(async () => {
-  summaries.constraint.value = await fetchSummary("summaries/shapes/distribution-constraint");
-  summaries.correlation.value = await fetchSummary("summaries/shapes/correlation");
-  summaries.diversity.value = await fetchSummary("summaries/shapes/diversity-intensity");
+  summaries.constraint.value = await fetchSummary("/summaries/shapes/distribution-constraint");
+  summaries.correlation.value = await fetchSummary("/summaries/shapes/correlation");
+  summaries.diversity.value = await fetchSummary("/summaries/shapes/diversity-intensity");
 })
 
 const columns = ref([

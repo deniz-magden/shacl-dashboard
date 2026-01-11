@@ -26,9 +26,6 @@ from .virtuoso_service import (
     # get_number_of_violations_in_validation_report,
     map_property_shapes_to_node_shapes,
     get_shape_from_shapes_graph,
-    get_maximum_number_of_violations_in_validation_report_for_node_shape,
-    get_average_number_of_violations_in_validation_report_for_node_shape,
-    
 )
 
 from .landing_service import (
@@ -49,6 +46,13 @@ from .homepage_service import (
     distribution_of_violations_per_path,
     distribution_of_violations_per_focus_node,
     generate_validation_details_report,
+    get_most_violated_node_shape,
+    get_most_violated_path,
+    get_most_violated_focus_node,
+    get_most_frequent_constraint_component,
+    get_distinct_constraint_components_count,
+    get_distinct_constraints_count_in_shapes,
+    get_distribution_of_violations_per_constraint_component,
 )
 
 from .shapes_overview_service import (
@@ -60,6 +64,12 @@ from .shapes_overview_service import (
     get_number_of_violations_per_constraint_type_for_property_shape,
     get_total_constraints_count_per_node_shape,
     get_constraints_count_for_property_shapes,
+    get_maximum_number_of_violations_in_validation_report_for_node_shape,
+    get_average_number_of_violations_in_validation_report_for_node_shape,
+    get_distribution_of_violations_per_constraint,
+    get_correlation_of_constraints_and_violations,
+    get_node_shape_details_table,
+    
 )
 
 __all__ = [
@@ -97,5 +107,14 @@ __all__ = [
     "distribution_of_violations_per_path",
     "distribution_of_violations_per_focus_node",
     "generate_validation_details_report",
-    
+    "get_distribution_of_violations_per_constraint",
+    "get_correlation_of_constraints_and_violations",
+    "get_node_shape_details_table",
+    "get_most_violated_node_shape",
+    "get_most_violated_path",
+    "get_most_violated_focus_node",
+    "get_most_frequent_constraint_component",
+    "get_distinct_constraint_components_count",
+    "get_distinct_constraints_count_in_shapes",
+    "get_distribution_of_violations_per_constraint_component",
 ]

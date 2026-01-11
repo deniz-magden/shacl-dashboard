@@ -149,93 +149,267 @@ import HistogramChart from "./../Charts/HistogramChart.vue";
 import PieChart from "./../Charts/PieChart.vue";
 import Tag from "./../Reusable/Tag.vue";
 import ViolationTable from "./../Reusable/ViolationTable.vue";
-import axios from "axios";
+import * as api from "../../services/api.js";
 
-const tags = [
-  { title: "Total Violations", value: "27392", titleMaxViolated: "", maxViolated: "" },
-  { title: "Violated Node Shapes", value: "27/30 (90%)", titleMaxViolated: "Most Violated Node Shape", maxViolated: "shs:StadiumShape"},
-  { title: "Violated Paths", value: " 30/255 (11.76%)", titleMaxViolated: "Most Violated Path", maxViolated: "rdf:type" },
-  { title: "Violated Focus Nodes", value: "1388", titleMaxViolated: "Most Violated Focus Node", maxViolated: "dbr:Steve_Davis" },
-  { title: "Violated Constraint Components", value: "4/5 (80%)", titleMaxViolated: "Most Violated Constraint Component", maxViolated: "sh:InConstraintComponent" },
-];
+// Store prefixes for URI formatting
+const prefixes = ref({});
+
+// Helper function to format URIs using prefixes
+const formatUri = (uri) => {
+  if (!uri || typeof uri !== "string") return "N/A";
+
+  // Try to match with prefixes
+  let matchedPrefix = null;
+  let matchedNamespace = null;
+
+  for (const [prefix, namespace] of Object.entries(prefixes.value)) {
+    if (uri.startsWith(namespace) && (!matchedNamespace || namespace.length > matchedNamespace.length)) {
+      matchedPrefix = prefix;
+      matchedNamespace = namespace;
+    }
+  }
+
+  if (matchedPrefix) {
+    return `${matchedPrefix}:${uri.slice(matchedNamespace.length)}`;
+  }
+
+  // Fallback: extract local name after # or /
+  const match = uri.match(/[#\/]([^#\/]+)$/);
+  return match ? match[1] : uri;
+};
+
+// Helper function to calculate percentage
+const formatPercentage = (part, total) => {
+  if (total === 0) return "0%";
+  return `${((part / total) * 100).toFixed(2)}%`;
+};
+
+// Reactive data for tags and histograms
+const tags = ref([
+  { title: "Total Violations", value: "Loading...", titleMaxViolated: "", maxViolated: "" },
+  { title: "Violated Node Shapes", value: "Loading...", titleMaxViolated: "Most Violated Node Shape", maxViolated: "Loading..." },
+  { title: "Violated Paths", value: "Loading...", titleMaxViolated: "Most Violated Path", maxViolated: "Loading..." },
+  { title: "Violated Focus Nodes", value: "Loading...", titleMaxViolated: "Most Violated Focus Node", maxViolated: "Loading..." },
+  { title: "Violated Constraint Components", value: "Loading...", titleMaxViolated: "Most Violated Constraint Component", maxViolated: "Loading..." },
+]);
 
 const shapeHistogramData = ref({
-  labels: ["0-237", "238-475", "476-713", "714-951", "952-1189", "1190-1427", "1428-1665", "1666-1903", "1904-2141", "2142-2379"],
+  labels: [],
   datasets: [
     {
       label: "Violations",
-      data: [5, 2, 4, 6, 5, 2, 2, 1, 1, 2],
-      backgroundColor: "rgba(154, 188, 228)", // Light blue with transparency
-      borderColor: "rgba(154, 188, 228)", // Solid blue border
-      borderWidth: 1, // Optional: sets the border width of bars
+      data: [],
+      backgroundColor: "rgba(154, 188, 228)",
+      borderColor: "rgba(154, 188, 228)",
+      borderWidth: 1,
     },
   ],
 });
 
-
 const pathHistogramData = ref({
-  labels: ["0-2586", "2587-5173", "5174-7760", "7761-10347", "10348-12934", "12935-15521", "15522-18108", "18109-20695", "20696-23282", "23283-25869"],
+  labels: [],
   datasets: [
     {
       label: "Violations",
-      data: [29, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-      backgroundColor: "rgba(94, 148, 212, 1)", // Light blue with transparency
-      borderColor: "rgba(94, 148, 212, 1)", // Solid blue border
-      borderWidth: 1, // Optional: sets the border width of bars
+      data: [],
+      backgroundColor: "rgba(94, 148, 212, 1)",
+      borderColor: "rgba(94, 148, 212, 1)",
+      borderWidth: 1,
     },
   ],
 });
 
 const focusNodeHistogramData = ref({
-  labels: ["0-10", "11-21", "22-32", "33-43", "44-54", "55-65", "66-76", "77-87", "88-98", "99-109"],
+  labels: [],
   datasets: [
     {
       label: "Violations",
-      data: [268, 609, 378, 81, 21, 14, 10, 4, 1, 2],
-      backgroundColor: "rgba(22, 93, 177, 1)", // Light blue with transparency
-      borderColor: "rgba(22, 93, 177, 1)", // Solid blue border
-      borderWidth: 1, // Optional: sets the border width of bars
+      data: [],
+      backgroundColor: "rgba(22, 93, 177, 1)",
+      borderColor: "rgba(22, 93, 177, 1)",
+      borderWidth: 1,
     },
   ],
 });
 
 const constraintComponentHistogramData = ref({
-  labels: ["0-2586", "2587-5173", "5174-7760", "7761-10347", "10348-12934", "12935-15521", "15522-18108", "18109-20695", "20696-23282", "23283-25869"],
+  labels: [],
   datasets: [
     {
       label: "Violations",
-      data: [4, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-      backgroundColor: "rgba(10, 45, 87)", // Light blue with transparency
-      borderColor: "rgba(10, 45, 87)", // Solid blue border
-      borderWidth: 1, // Optional: sets the border width of bars
+      data: [],
+      backgroundColor: "rgba(10, 45, 87)",
+      borderColor: "rgba(10, 45, 87)",
+      borderWidth: 1,
     },
   ],
 });
 
-let summaries = {
-  shape: ref("Loading ..."),
-  path: ref("Loading ..."),
-  focusNode: ref("Loading ..."),
-  constraintComponent: ref("Loading ..."),
-}
+// Summaries for explanation text
+const summaries = {
+  shape: ref("Loading..."),
+  path: ref("Loading..."),
+  focusNode: ref("Loading..."),
+  constraintComponent: ref("Loading..."),
+};
 
-async function fetchSummary(uri) {
+// Helper function to fetch summaries
+async function fetchSummary(endpoint) {
   try {
-    const response = await axios.get(`http://localhost:5000/api/${uri}`, {
-      params: {},
-    });
-    return response.data.summary;
-  } catch {
-    return "Error contacting backend";
+    const response = await fetch(`http://localhost:5000${endpoint}?level=high`);
+    if (!response.ok) {
+      return "Error loading summary";
+    }
+    const data = await response.json();
+    return data.summary || "No summary available";
+  } catch (error) {
+    console.error(`Error fetching summary from ${endpoint}:`, error);
+    return "Error loading summary";
   }
 }
 
+// Load data from API on component mount
 onMounted(async () => {
-  summaries.shape.value = await fetchSummary("summaries/home/nodeshape");
-  summaries.path.value = await fetchSummary("summaries/home/path");
-  summaries.focusNode.value = await fetchSummary("summaries/home/focus-node");
-  summaries.constraintComponent.value = await fetchSummary("summaries/home/constraint");
-})
+  try {
+    // First, fetch prefixes from validation details (just get 1 record to get prefixes quickly)
+    const prefixData = await api.getValidationDetailsReport(1, 0);
+    prefixes.value = prefixData["@prefixes"] || {};
+
+    // Fetch summaries in parallel
+    const [shapeSummary, pathSummary, focusNodeSummary, constraintSummary] = await Promise.all([
+      fetchSummary("/summaries/home/nodeshape"),
+      fetchSummary("/summaries/home/path"),
+      fetchSummary("/summaries/home/focus-node"),
+      fetchSummary("/summaries/home/constraint"),
+    ]);
+    
+    summaries.shape.value = shapeSummary;
+    summaries.path.value = pathSummary;
+    summaries.focusNode.value = focusNodeSummary;
+    summaries.constraintComponent.value = constraintSummary;
+
+    // Fetch all statistics in parallel
+    const [
+      violationsCount,
+      nodeShapesWithViolations,
+      totalNodeShapes,
+      pathsWithViolations,
+      totalPaths,
+      focusNodesCount,
+      mostViolatedShape,
+      mostViolatedPath,
+      mostViolatedFocusNode,
+      distinctConstraintComponents,
+      totalConstraints,
+      mostFrequentConstraint,
+      shapeDistribution,
+      pathDistribution,
+      focusNodeDistribution,
+      constraintDistribution,
+    ] = await Promise.all([
+      api.getViolationsCount(),
+      api.getNodeShapesWithViolationsCount(),
+      api.getNodeShapesCount(),
+      api.getPathsWithViolationsCount(),
+      api.getPathsCountInGraph(),
+      api.getFocusNodesCount(),
+      api.getMostViolatedNodeShape(),
+      api.getMostViolatedPath(),
+      api.getMostViolatedFocusNode(),
+      api.getDistinctConstraintComponentsCount(),
+      api.getDistinctConstraintsCountInShapes(),
+      api.getMostFrequentConstraintComponent(),
+      api.getViolationsDistributionPerShape(),
+      api.getViolationsDistributionPerPath(),
+      api.getViolationsDistributionPerFocusNode(),
+      api.getViolationsDistributionPerConstraintComponent(),
+    ]);
+
+    // Update tags with fetched data
+    tags.value = [
+      {
+        title: "Total Violations",
+        value: violationsCount.violationCount.toString(),
+        titleMaxViolated: "",
+        maxViolated: "",
+      },
+      {
+        title: "Violated Node Shapes",
+        value: `${nodeShapesWithViolations.nodeShapesWithViolationsCount}/${totalNodeShapes.nodeShapeCount} (${formatPercentage(nodeShapesWithViolations.nodeShapesWithViolationsCount, totalNodeShapes.nodeShapeCount)})`,
+        titleMaxViolated: "Most Violated Node Shape",
+        maxViolated: formatUri(mostViolatedShape.nodeShape),
+      },
+      {
+        title: "Violated Paths",
+        value: `${pathsWithViolations.pathsWithViolationsCount}/${totalPaths.uniquePathsCount} (${formatPercentage(pathsWithViolations.pathsWithViolationsCount, totalPaths.uniquePathsCount)})`,
+        titleMaxViolated: "Most Violated Path",
+        maxViolated: formatUri(mostViolatedPath.path),
+      },
+      {
+        title: "Violated Focus Nodes",
+        value: focusNodesCount.focusNodesCount.toString(),
+        titleMaxViolated: "Most Violated Focus Node",
+        maxViolated: formatUri(mostViolatedFocusNode.focusNode),
+      },
+      {
+        title: "Violated Constraint Components",
+        value: `${totalConstraints.distinctConstraintsCount}/${distinctConstraintComponents.distinctConstraintComponentCount} (${formatPercentage(totalConstraints.distinctConstraintsCount, distinctConstraintComponents.distinctConstraintComponentCount)})`,
+        titleMaxViolated: "Most Violated Constraint Component",
+        maxViolated: formatUri(mostFrequentConstraint.constraintComponent),
+      },
+    ];
+
+    // Update histogram data with proper styling
+    shapeHistogramData.value = {
+      ...shapeDistribution,
+      datasets: shapeDistribution.datasets.map(dataset => ({
+        ...dataset,
+        backgroundColor: "rgba(154, 188, 228)",
+        borderColor: "rgba(154, 188, 228)",
+        borderWidth: 1,
+      }))
+    };
+    
+    pathHistogramData.value = {
+      ...pathDistribution,
+      datasets: pathDistribution.datasets.map(dataset => ({
+        ...dataset,
+        backgroundColor: "rgba(94, 148, 212, 1)",
+        borderColor: "rgba(94, 148, 212, 1)",
+        borderWidth: 1,
+      }))
+    };
+    
+    focusNodeHistogramData.value = {
+      ...focusNodeDistribution,
+      datasets: focusNodeDistribution.datasets.map(dataset => ({
+        ...dataset,
+        backgroundColor: "rgba(22, 93, 177, 1)",
+        borderColor: "rgba(22, 93, 177, 1)",
+        borderWidth: 1,
+      }))
+    };
+    
+    constraintComponentHistogramData.value = {
+      ...constraintDistribution,
+      datasets: constraintDistribution.datasets.map(dataset => ({
+        ...dataset,
+        backgroundColor: "rgba(10, 45, 87)",
+        borderColor: "rgba(10, 45, 87)",
+        borderWidth: 1,
+      }))
+    };
+    
+  } catch (error) {
+    console.error("Error loading homepage data:", error);
+    // Set error state in tags
+    tags.value = tags.value.map(tag => ({
+      ...tag,
+      value: tag.value === "Loading..." ? "Error" : tag.value,
+      maxViolated: tag.maxViolated === "Loading..." ? "Error" : tag.maxViolated,
+    }));
+  }
+});
 
 </script>
 

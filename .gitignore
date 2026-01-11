@@ -129,7 +129,30 @@ dist
 .yarn/install-state.gz
 .pnp.*
 *.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+backend/venv/
+backend/env/
+
+# Frontend build and dependencies
 /frontend/src/service/frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
 
 # Elastic Beanstalk Files
 .elasticbeanstalk/*

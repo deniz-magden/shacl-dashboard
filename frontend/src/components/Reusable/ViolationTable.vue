@@ -123,9 +123,10 @@
  * - ./ViolationTableRow.vue - For rendering individual violation rows
  * - ./Filter.vue - For filtering functionality
  * - font-awesome - For icons
+ * - ../../services/api.js - For fetching validation data from backend
  *
  * @data
- * - Fetches validation results from '../reports/result.json'
+ * - Fetches validation results from backend API
  * - Processes and formats the data using prefixes for readability
  *
  * @features
@@ -143,6 +144,7 @@
 import { ref, computed, onMounted } from 'vue';
 import ViolationTableRow from './ViolationTableRow.vue';
 import Filter from './Filter.vue';
+import * as api from '../../services/api.js';
 
 const tableData = ref([]);
 const prefixes = ref({});
@@ -175,26 +177,17 @@ const nextPage = () => {
 
 const loadJsonData = async () => {
   try {
-    const response = await fetch('./../reports/result.json');
-    if (!response.ok) {
-      throw new Error("Failed to fetch JSON");
-    }
+    // Fetch data from backend API instead of static JSON file
+    const jsonData = await api.getValidationDetailsReport(100, 0);
     
-    const jsonData = await response.json();
-    prefixes.value = jsonData["@prefixes"] || {}; 
-    console.log("Loaded Prefixes:", prefixes.value);
+    prefixes.value = jsonData["@prefixes"] || {};
 
-    if (Object.keys(prefixes.value).length === 0) {
-      console.warn("No prefixes found! URIs will not be transformed.");
-    }
 
     const violations = jsonData.violations;
 
     allData.value = violations.map((violation) => {
       const details = Object.values(violation)[0].full_validation_details;
       const shapeDetails = Object.values(violation)[0].shape_details;
-
-      console.log("Before Formatting:", details);
 
       const formattedData = {
         focusNode: formatURI(details.FocusNode),
@@ -231,23 +224,18 @@ const loadJsonData = async () => {
         },
       };
 
-      console.log("After Formatting:", formattedData);
-
       return formattedData;
     });
 
     tableData.value = [...allData.value];
-    console.log("Final Processed Data:", tableData.value);
   } catch (error) {
-    console.error('Error fetching JSON data:', error);
+    console.error('Error fetching validation data from API:', error);
   }
 };
 
 
 const formatURI = (uri) => {
   if (!uri || typeof uri !== "string") return uri; // Ensure valid input
-
-  console.log("Processing URI:", uri);
 
   let matchedPrefix = null;
   let matchedNamespace = null;
@@ -260,12 +248,9 @@ const formatURI = (uri) => {
   }
 
   if (matchedPrefix) {
-    const transformedURI = `${matchedPrefix}:${uri.slice(matchedNamespace.length)}`;
-    console.log(`Transformed "${uri}" → "${transformedURI}"`);
-    return transformedURI;
+    return `${matchedPrefix}:${uri.slice(matchedNamespace.length)}`;
   }
 
-  console.log(`No match for "${uri}". Returning original.`);
   return uri; // Return as is if no prefix match
 };
 

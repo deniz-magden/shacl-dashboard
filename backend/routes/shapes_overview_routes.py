@@ -5,7 +5,6 @@ from functions import (
     get_all_property_path_names,
     get_all_constraint_components_names,
     get_violations_for_shape_name,
-    # get_number_of_shapes_in_shapes_graph,
     get_number_of_node_shapes,
     get_number_of_node_shapes_with_violations,
     map_property_shapes_to_node_shapes,
@@ -20,6 +19,9 @@ from functions import (
     get_number_of_violations_per_constraint_type_for_property_shape,
     get_total_constraints_count_per_node_shape,
     get_constraints_count_for_property_shapes,
+    get_distribution_of_violations_per_constraint,
+    get_correlation_of_constraints_and_violations,
+    get_node_shape_details_table,
 )
 from functions.shapes_overview_service import (
     get_distribution_of_violations_per_constraint,
@@ -72,7 +74,7 @@ allowing flexibility in targeting different validation reports and shapes graphs
 
 
 # Route to get all shapes names
-@shapes_overview_bp.route('/shapes/names', methods=['GET'])
+@shapes_overview_bp.route('/overview/shapes/names', methods=['GET'])
 def get_shapes_names():
     try:
         graph_uri = request.args.get("graph_uri", default="http://ex.org/ValidationReport")
@@ -83,7 +85,7 @@ def get_shapes_names():
 
 
 # Route to get all focus node names
-@shapes_overview_bp.route('/focus-nodes/names', methods=['GET'])
+@shapes_overview_bp.route('/overview/focus-nodes/names', methods=['GET'])
 def get_focus_node_names():
     try:
         graph_uri = request.args.get("graph_uri", default="http://ex.org/ValidationReport")
@@ -94,7 +96,7 @@ def get_focus_node_names():
 
 
 # Route to get all property path names
-@shapes_overview_bp.route('/property-paths/names', methods=['GET'])
+@shapes_overview_bp.route('/overview/property-paths/names', methods=['GET'])
 def get_property_path_names():
     try:
         graph_uri = request.args.get("graph_uri", default="http://ex.org/ValidationReport")
@@ -105,7 +107,7 @@ def get_property_path_names():
 
 
 # Route to get all constraint component names
-@shapes_overview_bp.route('/constraint-components/names', methods=['GET'])
+@shapes_overview_bp.route('/overview/constraint-components/names', methods=['GET'])
 def get_constraint_components_names():
     try:
         graph_uri = request.args.get("graph_uri", default="http://ex.org/ValidationReport")
@@ -116,7 +118,7 @@ def get_constraint_components_names():
 
 
 # Route to get violations for a shape name
-@shapes_overview_bp.route('/violations/shape', methods=['GET'])
+@shapes_overview_bp.route('/overview/violations/shape', methods=['GET'])
 def get_violations_by_shape():
     try:
         shape_name = request.args.get("shape_name")
@@ -131,7 +133,7 @@ def get_violations_by_shape():
 
 
 # Route to get the number of shapes in the shapes graph
-@shapes_overview_bp.route('/shapes/graph/count', methods=['GET'])
+@shapes_overview_bp.route('/overview/shapes/graph/count', methods=['GET'])
 def get_shapes_count_in_graph():
     try:
         graph_uri = request.args.get("graph_uri", default="http://ex.org/ShapesGraph")
@@ -142,7 +144,7 @@ def get_shapes_count_in_graph():
 
 
 # Route to get the number of node shapes with violations in the validation report
-@shapes_overview_bp.route('/shapes/violations/count', methods=['GET'])
+@shapes_overview_bp.route('/overview/shapes/violations/count', methods=['GET'])
 def get_node_shapes_with_violations_count():
     try:
         shapes_graph_uri = request.args.get("shapes_graph_uri", default="http://ex.org/ShapesGraph")
@@ -157,7 +159,7 @@ def get_node_shapes_with_violations_count():
 
 
 # Route to map property shapes to node shapes
-@shapes_overview_bp.route('/property-to-node/map', methods=['GET'])
+@shapes_overview_bp.route('/overview/property-to-node/map', methods=['GET'])
 def map_property_shapes():
     try:
         validation_report_uri = request.args.get("validation_report_uri", default="http://ex.org/ValidationReport")
@@ -169,7 +171,7 @@ def map_property_shapes():
 
 
 # Route to get shape details from shapes graph
-@shapes_overview_bp.route('/shapes/graph/details', methods=['POST'])
+@shapes_overview_bp.route('/overview/shapes/graph/details', methods=['POST'])
 def get_shape_details():
     try:
         data = request.get_json()
@@ -184,7 +186,7 @@ def get_shape_details():
 
 
 # Route to get the maximum number of violations for a node shape
-@shapes_overview_bp.route('/violations/max', methods=['GET'])
+@shapes_overview_bp.route('/overview/violations/max', methods=['GET'])
 def get_max_violations_for_node_shape():
     try:
         result = get_maximum_number_of_violations_in_validation_report_for_node_shape()
@@ -194,7 +196,7 @@ def get_max_violations_for_node_shape():
 
 
 # Route to get the average number of violations for node shapes
-@shapes_overview_bp.route('/violations/average', methods=['GET'])
+@shapes_overview_bp.route('/overview/violations/average', methods=['GET'])
 def get_average_violations_for_node_shapes():
     try:
         result = get_average_number_of_violations_in_validation_report_for_node_shape()
@@ -204,7 +206,7 @@ def get_average_violations_for_node_shapes():
     
 
 # Route to get the number of violations for a specific Node Shape
-@shapes_overview_bp.route('/violations/node-shape/count', methods=['GET'])
+@shapes_overview_bp.route('/overview/violations/node-shape/count', methods=['GET'])
 def get_violations_for_node_shape():
     try:
         nodeshape_name = request.args.get("nodeshape_name")
@@ -217,7 +219,7 @@ def get_violations_for_node_shape():
         return jsonify({'error': str(e)}), 400
 
 # Route to get the number of violated focus nodes for a Node Shape
-@shapes_overview_bp.route('/violations/node-shape/focus-nodes/count', methods=['GET'])
+@shapes_overview_bp.route('/overview/violations/node-shape/focus-nodes/count', methods=['GET'])
 def get_violated_focus_for_node_shape():
     try:
         node_shape = request.args.get("node_shape")
@@ -230,7 +232,7 @@ def get_violated_focus_for_node_shape():
         return jsonify({'error': str(e)}), 400
     
 # Route to get the number of property paths for a Node Shape
-@shapes_overview_bp.route('/node-shape/property-paths/count', methods=['GET'])
+@shapes_overview_bp.route('/overview/node-shape/property-paths/count', methods=['GET'])
 def get_property_paths_for_node_shape():
     try:
         node_shape = request.args.get("node_shape")
@@ -244,7 +246,7 @@ def get_property_paths_for_node_shape():
     
 
 # Route to get the number of constraints for a Node Shape
-@shapes_overview_bp.route('/node-shape/constraints/count', methods=['GET'])
+@shapes_overview_bp.route('/overview/node-shape/constraints/count', methods=['GET'])
 def get_constraints_for_node_shape():
     try:
         node_shape = request.args.get("node_shape")
@@ -257,7 +259,7 @@ def get_constraints_for_node_shape():
         return jsonify({'error': str(e)}), 400
     
 # Route to get Property Shapes for a Node Shape
-@shapes_overview_bp.route('/node-shape/property-shapes', methods=['GET'])
+@shapes_overview_bp.route('/overview/node-shape/property-shapes', methods=['GET'])
 def get_property_shapes_for_node_shape():
     try:
         node_shape = request.args.get("node_shape")
@@ -274,7 +276,7 @@ def get_property_shapes_for_node_shape():
 
 
 # Route to get violations per constraint type for Property Shapes of a Node Shape
-@shapes_overview_bp.route('/node-shape/property-shapes/violations', methods=['GET'])
+@shapes_overview_bp.route('/overview/node-shape/property-shapes/violations', methods=['GET'])
 def get_violations_per_constraint_type():
     try:
         node_shape = request.args.get("node_shape")
@@ -287,7 +289,7 @@ def get_violations_per_constraint_type():
         return jsonify({'error': str(e)}), 400
     
 # Route to get total constraints count per Node Shape
-@shapes_overview_bp.route('/node-shape/constraints/total', methods=['GET'])
+@shapes_overview_bp.route('/overview/node-shape/constraints/total', methods=['GET'])
 def get_total_constraints_count():
     try:
         # Get the shapes graph URI from the request arguments, or use the default value
@@ -300,57 +302,69 @@ def get_total_constraints_count():
     except Exception as e:
         # Handle exceptions and return error response
         return jsonify({'error': str(e)}), 400
+    
+    
+@shapes_overview_bp.route('/overview/constraints-count', methods=['GET'])
+def get_constraints_count():
+    """
+    Route to get the constraints count for each Property Shape in a given Node Shape.
+    Query Parameters:
+        - nodeshape_name (str): The name of the Node Shape to query.
+    Returns:
+        JSON response with Property Shape names and their corresponding constraints count.
+    """
+    nodeshape_name = request.args.get('nodeshape_name')
+    if not nodeshape_name:
+        return jsonify({"error": "Parameter 'nodeshape_name' is required"}), 400
 
-
-# Route to get distribution of violations per constraint (for histogram chart)
-@shapes_overview_bp.route('/violations/distribution-per-constraint', methods=['GET'])
-def get_distribution_per_constraint():
     try:
-        shapes_graph_uri = request.args.get("shapes_graph_uri", default="http://ex.org/ShapesGraph")
-        validation_report_uri = request.args.get("validation_report_uri", default="http://ex.org/ValidationReport")
-        num_bins = request.args.get("num_bins", type=int, default=10)
-        
-        result = get_distribution_of_violations_per_constraint(
-            shapes_graph_uri=shapes_graph_uri,
-            validation_report_uri=validation_report_uri,
-            num_bins=num_bins
-        )
-        return jsonify(result), 200
+        constraints_count = get_constraints_count_for_property_shapes(nodeshape_name)
+        return jsonify(constraints_count), 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({"error": str(e)}), 500
 
 
-# Route to get correlation data (for scatter plot)
-@shapes_overview_bp.route('/correlation/constraints-vs-violations', methods=['GET'])
-def get_correlation_data():
+@shapes_overview_bp.route('/overview/violations-distribution', methods=['GET'])
+def get_violations_distribution():
+    """
+    Route to get data for the 'Distribution of Violations per Constraint' plot.
+    Query Parameters:
+        - num_bins (int): Number of bins for the plot (optional, default is 10).
+    Returns:
+        JSON response with labels and datasets for the plot.
+    """
+    num_bins = request.args.get('num_bins', default=10, type=int)
+
     try:
-        shapes_graph_uri = request.args.get("shapes_graph_uri", default="http://ex.org/ShapesGraph")
-        validation_report_uri = request.args.get("validation_report_uri", default="http://ex.org/ValidationReport")
-        
-        result = get_correlation_of_constraints_and_violations(
-            shapes_graph_uri=shapes_graph_uri,
-            validation_report_uri=validation_report_uri
-        )
-        return jsonify({'data': result}), 200
+        distribution = get_distribution_of_violations_per_constraint(num_bins=num_bins)
+        return jsonify(distribution), 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({"error": str(e)}), 500
 
 
-# Route to get shapes overview table data
-@shapes_overview_bp.route('/shapes/overview/table', methods=['GET'])
-def get_shapes_overview_table():
+@shapes_overview_bp.route('/overview/correlation', methods=['GET'])
+def get_correlation_constraints_violations():
+    """
+    Route to get data for the 'Correlation Between Constraints and Violations' plot.
+    Returns:
+        JSON response with a list of dicts containing violation entropy,
+        number of violations, and number of constraints for each Node Shape.
+    """
     try:
-        shapes_graph_uri = request.args.get("shapes_graph_uri", default="http://ex.org/ShapesGraph")
-        validation_report_uri = request.args.get("validation_report_uri", default="http://ex.org/ValidationReport")
-        limit = request.args.get("limit", type=int, default=None)
-        offset = request.args.get("offset", type=int, default=None)
+        correlation_data = get_correlation_of_constraints_and_violations()
+        return jsonify(correlation_data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Route to get Node Shape details table
+@shapes_overview_bp.route('/overview/shapes/details', methods=['GET'])
+def get_node_shape_details():
+    try:
+        # Retrieve optional limit and offset parameters from the request
+        limit = request.args.get("limit", type=int)
+        offset = request.args.get("offset", type=int)
         
-        result = get_node_shape_details_table(
-            limit=limit,
-            offset=offset,
-            shapes_graph_uri=shapes_graph_uri,
-            validation_report_uri=validation_report_uri
-        )
-        return jsonify({'shapes': result}), 200
+        result = get_node_shape_details_table(limit=limit, offset=offset)
+        return jsonify({'nodeShapes': result}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
