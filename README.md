@@ -97,6 +97,7 @@ The default configuration uses:
 
 #### Using Alternative Triple Stores
 
+
 By default, SHACL Dashboard is configured to use Virtuoso. However, it supports other SPARQL endpoints:
 
 ```python

@@ -139,6 +139,9 @@ dist/
 build/
 .eggs/
 
+# CSV files
+*.csv
+
 # Python virtual environments
 venv/
 env/

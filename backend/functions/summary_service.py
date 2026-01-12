@@ -75,7 +75,8 @@ LLM Support:
 try:
     from openai import OpenAI
     _openai_available = True
-except ImportError:
+    print("✓ OpenAI library imported successfully", file=sys.stderr)
+except ImportError as e:
     _openai_available = False
 
 # LLM response cache (simple in-memory cache)
@@ -218,6 +219,84 @@ def clean_pairs(pairs: Iterable[tuple[str, int]]) -> List[tuple[str, int]]:
     return [(clean_label(n), int(c)) for (n, c) in pairs]
 
 
+def _create_openai_client(api_key: str, timeout: float) -> 'OpenAI':
+    """
+    Helper function to create OpenAI client with proper timeout configuration.
+    Handles both httpx and fallback methods.
+    """
+    try:
+        import httpx
+        print(f"Using httpx for HTTP client", file=sys.stderr)
+        timeout_obj = httpx.Timeout(timeout, connect=10.0)
+        http_client = httpx.Client(timeout=timeout_obj)
+        client = OpenAI(api_key=api_key, http_client=http_client, timeout=timeout)
+        print(f"✓ OpenAI client created with httpx", file=sys.stderr)
+        return client
+    except (ImportError, TypeError) as e:
+        print(f"httpx not available or error: {e}, using fallback method", file=sys.stderr)
+        import os as os_module
+        proxy_backup = {}
+        for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']:
+            if var in os_module.environ:
+                proxy_backup[var] = os_module.environ[var]
+                del os_module.environ[var]
+        
+        try:
+            old_key = os_module.environ.get('OPENAI_API_KEY')
+            os_module.environ['OPENAI_API_KEY'] = api_key
+            client = OpenAI(timeout=timeout)
+            return client
+        finally:
+            for var, value in proxy_backup.items():
+                os_module.environ[var] = value
+            if old_key:
+                os_module.environ['OPENAI_API_KEY'] = old_key
+            elif 'OPENAI_API_KEY' in os_module.environ:
+                del os_module.environ['OPENAI_API_KEY']
+
+
+def _make_llm_category_call(
+    client: 'OpenAI',
+    prompt: str,
+    system_message: str,
+    model: str,
+    timeout: float,
+    max_tokens: int = 15
+) -> Optional[str]:
+    """
+    Helper function to make LLM API call and extract category.
+    """
+    print(f"Making LLM API call (timeout={timeout}s, model={model})...", file=sys.stderr)
+    print(f"Prompt length: {len(prompt)} characters", file=sys.stderr)
+    
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=max_tokens,
+            timeout=timeout
+        )
+        print(f"✓ LLM API call completed successfully", file=sys.stderr)
+        return response.choices[0].message.content.strip().lower()
+    except Exception as api_error:
+        print(f"✗ API call raised exception: {type(api_error).__name__}: {api_error}", file=sys.stderr)
+        raise
+
+
+def _build_context_string(shapes_graph_uri: Optional[str], validation_report_uri: Optional[str]) -> str:
+    """Helper to build context string from URIs."""
+    context_parts = []
+    if shapes_graph_uri:
+        context_parts.append(f"Shapes Graph URI: {shapes_graph_uri}")
+    if validation_report_uri:
+        context_parts.append(f"Validation Report URI: {validation_report_uri}")
+    return "\n".join(context_parts) if context_parts else "No additional context available."
+
+
 def dominant_category(labels: Iterable[str]) -> str:
     """
     Return the *true* dominant category (including 'generic').
@@ -240,7 +319,7 @@ def dominant_category_llm(
     validation_report_uri: Optional[str] = None,
     api_key: Optional[str] = None,
     model: str = "gpt-4o",
-    timeout: int = 15,
+    timeout: float = 60.0,
     use_cache: bool = True
 ) -> Optional[str]:
     """
@@ -263,14 +342,22 @@ def dominant_category_llm(
     Returns:
         Category name as a string (flexible, domain-specific) or None if unavailable
     """
+    print(f"\n{'='*60}", file=sys.stderr)
+    print(f"dominant_category_llm() called", file=sys.stderr)
+    print(f"{'='*60}", file=sys.stderr)
+    
     if not _openai_available:
+        print("✗ OpenAI library not available", file=sys.stderr)
         return None
     
     # Get API key from environment or parameter
     if api_key is None:
         api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
+        print("✗ No API key found (neither parameter nor env var)", file=sys.stderr)
         return None
+    
+    print(f"✓ API key found (length: {len(api_key)})", file=sys.stderr)
     
     labels_list = list(labels)
     if not labels_list:
@@ -283,49 +370,15 @@ def dominant_category_llm(
             return _llm_cache[cache_key]
     
     try:
-        # Initialize OpenAI client
-        try:
-            import httpx
-            http_client = httpx.Client(timeout=timeout)
-            client = OpenAI(api_key=api_key, http_client=http_client)
-        except (ImportError, TypeError):
-            import os as os_module
-            proxy_backup = {}
-            for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']:
-                if var in os_module.environ:
-                    proxy_backup[var] = os_module.environ[var]
-                    del os_module.environ[var]
-            
-            try:
-                # Set API key via environment variable
-                old_key = os_module.environ.get('OPENAI_API_KEY')
-                os_module.environ['OPENAI_API_KEY'] = api_key
-                client = OpenAI()
-            finally:
-                for var, value in proxy_backup.items():
-                    os_module.environ[var] = value
-                if old_key:
-                    os_module.environ['OPENAI_API_KEY'] = old_key
-                elif 'OPENAI_API_KEY' in os_module.environ:
-                    del os_module.environ['OPENAI_API_KEY']
+        client = _create_openai_client(api_key, timeout)
         
-        # Clean labels for better context
+        # Clean labels and prepare prompt
         cleaned_labels = [clean_label(label) for label in labels_list]
-        # Limit to first 30 labels to avoid token limits while getting good coverage
         sample_labels = cleaned_labels[:30]
-        
         if not sample_labels:
             return None
         
-        # Build context about the dataset
-        context_parts = []
-        if shapes_graph_uri:
-            context_parts.append(f"Shapes Graph URI: {shapes_graph_uri}")
-        if validation_report_uri:
-            context_parts.append(f"Validation Report URI: {validation_report_uri}")
-        
-        context_str = "\n".join(context_parts) if context_parts else "No additional context available."
-        
+        context_str = _build_context_string(shapes_graph_uri, validation_report_uri)
         prompt = f"""You are analyzing labels from a SHACL validation report. SHACL (Shapes Constraint Language) is used to validate RDF data.
 
 Context:
@@ -350,17 +403,12 @@ Examples:
 
 Respond with ONLY the category name (1-3 words), nothing else. Use lowercase."""
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a semantic categorization assistant. Respond with only a category name (1-3 words)."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=15
+        print(f"Sample labels: {sample_labels[:5]}...", file=sys.stderr)
+        category = _make_llm_category_call(
+            client, prompt,
+            "You are a semantic categorization assistant. Respond with only a category name (1-3 words).",
+            model, timeout, max_tokens=15
         )
-        
-        category = response.choices[0].message.content.strip().lower()
         
         # Cache the result
         if use_cache and category:
@@ -378,11 +426,130 @@ Respond with ONLY the category name (1-3 words), nothing else. Use lowercase."""
         # On any error, return None to fallback to keyword-based approach
         error_type = type(e).__name__
         error_msg = str(e)
-        print(f"LLM category detection failed: {error_type}: {error_msg}", file=sys.stderr)
-        print(f"  API key provided: {'Yes' if api_key else 'No'}", file=sys.stderr)
+        print(f"\n{'='*60}", file=sys.stderr)
+        print(f"LLM category detection FAILED: {error_type}", file=sys.stderr)
+        print(f"{'='*60}", file=sys.stderr)
+        print(f"Error message: {error_msg}", file=sys.stderr)
+        print(f"API key provided: {'Yes' if api_key else 'No'}", file=sys.stderr)
         if api_key:
-            print(f"  API key starts with: {api_key[:7]}...", file=sys.stderr)
-        print(f"  Labels count: {len(labels_list)}", file=sys.stderr)
+            print(f"API key preview: {api_key[:10]}...{api_key[-4:]}", file=sys.stderr)
+        else:
+            env_key = os.getenv("OPENAI_API_KEY", "")
+            if env_key:
+                print(f"Environment variable OPENAI_API_KEY found: {env_key[:10]}...{env_key[-4:]}", file=sys.stderr)
+            else:
+                print("No API key found in environment variable OPENAI_API_KEY", file=sys.stderr)
+        print(f"Labels count: {len(labels_list)}", file=sys.stderr)
+        print(f"Timeout setting: {timeout}s", file=sys.stderr)
+        print(f"Model: {model}", file=sys.stderr)
+        
+        # Common error diagnostics
+        if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+            print("\n→ TIMEOUT ERROR: The API call took too long", file=sys.stderr)
+            print("  - Try increasing the timeout value", file=sys.stderr)
+            print("  - Check your network connection", file=sys.stderr)
+        elif "api key" in error_msg.lower() or "authentication" in error_msg.lower() or "401" in error_msg or "403" in error_msg:
+            print("\n→ AUTHENTICATION ERROR: API key issue", file=sys.stderr)
+            print("  - Verify your API key is correct", file=sys.stderr)
+            print("  - Check if you have credits/quota", file=sys.stderr)
+        elif "rate limit" in error_msg.lower() or "429" in error_msg:
+            print("\n→ RATE LIMIT ERROR: Too many requests", file=sys.stderr)
+            print("  - Wait a few minutes and try again", file=sys.stderr)
+        
+        import traceback
+        print(f"\nFull traceback:", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        print(f"{'='*60}\n", file=sys.stderr)
+        return None
+
+
+def dominant_category_llm_constraint(
+    labels: Iterable[str],
+    shapes_graph_uri: Optional[str] = None,
+    validation_report_uri: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: str = "gpt-4o",
+    timeout: float = 60.0
+) -> Optional[str]:
+    """
+    Use LLM to determine the dominant constraint category from SHACL constraint component labels.
+    Specialized version for constraint components that asks for specific constraint types.
+    
+    Returns categories like "cardinality constraints", "value constraints", "type constraints", etc.
+    """
+    print(f"\n{'='*60}", file=sys.stderr)
+    print(f"dominant_category_llm_constraint() called", file=sys.stderr)
+    print(f"{'='*60}", file=sys.stderr)
+    
+    if not _openai_available:
+        print("✗ OpenAI library not available", file=sys.stderr)
+        return None
+    
+    # Get API key from environment or parameter
+    if api_key is None:
+        api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        print("✗ No API key found (neither parameter nor env var)", file=sys.stderr)
+        return None
+    
+    print(f"✓ API key found (length: {len(api_key)})", file=sys.stderr)
+    
+    labels_list = list(labels)
+    if not labels_list:
+        return None
+    
+    print(f"✓ Processing {len(labels_list)} constraint component labels", file=sys.stderr)
+    
+    try:
+        client = _create_openai_client(api_key, timeout)
+        
+        # Clean labels and prepare specialized prompt
+        cleaned_labels = [clean_label(label) for label in labels_list]
+        sample_labels = cleaned_labels[:30]
+        if not sample_labels:
+            return None
+        
+        context_str = _build_context_string(shapes_graph_uri, validation_report_uri)
+        prompt = f"""You are analyzing SHACL constraint component names from a validation report. These are specific types of validation rules.
+
+Context:
+{context_str}
+
+Constraint Component Names (these are SHACL validation rule types):
+{', '.join(sample_labels)}
+
+Based on these constraint component names, categorize them into a specific constraint type category.
+Provide a concise category name (2-4 words) that describes the type of constraints.
+
+Valid categories include:
+- "cardinality constraints" (for minCount, maxCount, qualifiedMinCount, qualifiedMaxCount)
+- "value constraints" (for in, hasValue, equals, disjoint)
+- "type constraints" (for datatype, nodeKind, class)
+- "range constraints" (for minLength, maxLength, minInclusive, maxInclusive, minExclusive, maxExclusive)
+- "pattern constraints" (for pattern)
+- "language constraints" (for languageIn, uniqueLang)
+- "logical constraints" (for not, and, or, xone)
+- "structural constraints" (for closed, node)
+
+Respond with ONLY the category name (2-4 words), nothing else. Use lowercase."""
+        
+        category = _make_llm_category_call(
+            client, prompt,
+            "You are a SHACL constraint categorization assistant. Respond with only a constraint category name (2-4 words).",
+            model, timeout, max_tokens=20
+        )
+        
+        return category
+            
+    except Exception as e:
+        error_type = type(e).__name__
+        error_msg = str(e)
+        print(f"\n{'='*60}", file=sys.stderr)
+        print(f"LLM constraint categorization FAILED: {error_type}", file=sys.stderr)
+        print(f"Error: {error_msg}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(f"{'='*60}\n", file=sys.stderr)
         return None
 
 
@@ -1355,7 +1522,8 @@ def summarize_constraint_with_templates(
     
     if include_category and labels_cc:
         if use_llm:
-            dom_category = dominant_category_llm(
+            # Use specialized function for constraint components
+            dom_category = dominant_category_llm_constraint(
                 labels=labels_cc,
                 shapes_graph_uri=shapes_graph_uri,
                 validation_report_uri=report_uri,

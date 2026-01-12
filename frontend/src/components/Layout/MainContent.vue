@@ -1,5 +1,18 @@
 <template>
   <div class="main-content p-4">
+    <!-- Header with Download Button -->
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold text-gray-700">Dashboard Overview</h1>
+      <button
+        @click="downloadAllSummaries"
+        class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
+        :disabled="!summariesLoaded"
+      >
+        <font-awesome-icon :icon="['fas', 'download']" />
+        Download Summaries
+      </button>
+    </div>
+
     <!-- Tags Section -->
     <div class="grid gap-6 mb-6"
      style="grid-template-columns: minmax(150px, 0.2fr) 1fr 1fr 1fr 1fr;">
@@ -245,12 +258,87 @@ const constraintComponentHistogramData = ref({
   ],
 });
 
+// Summaries for explanation text
+const summaries = {
+  shape: ref("Loading..."),
+  path: ref("Loading..."),
+  focusNode: ref("Loading..."),
+  constraintComponent: ref("Loading..."),
+};
+
+// Track if summaries are loaded
+const summariesLoaded = ref(false);
+
+// Helper function to fetch summaries
+async function fetchSummary(endpoint) {
+  try {
+    const response = await fetch(`http://localhost:5000${endpoint}?level=high`);
+    if (!response.ok) {
+      return "Error loading summary";
+    }
+    const data = await response.json();
+    return data.summary || "No summary available";
+  } catch (error) {
+    console.error(`Error fetching summary from ${endpoint}:`, error);
+    return "Error loading summary";
+  }
+}
+
+// Function to download all summaries as a text file
+function downloadAllSummaries() {
+  const summaryContent = `SHACL Dashboard - Summary Report
+Generated: ${new Date().toLocaleString()}
+========================================
+
+1. VIOLATIONS PER NODE SHAPE
+========================================
+${summaries.shape.value}
+
+2. VIOLATIONS PER PATH
+========================================
+${summaries.path.value}
+
+3. VIOLATIONS PER FOCUS NODE
+========================================
+${summaries.focusNode.value}
+
+4. VIOLATIONS PER CONSTRAINT COMPONENT
+========================================
+${summaries.constraintComponent.value}
+`;
+
+  // Create a blob and download
+  const blob = new Blob([summaryContent], { type: 'text/plain' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `shacl-dashboard-summaries-${new Date().toISOString().split('T')[0]}.txt`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
 // Load data from API on component mount
 onMounted(async () => {
   try {
     // First, fetch prefixes from validation details (just get 1 record to get prefixes quickly)
     const prefixData = await api.getValidationDetailsReport(1, 0);
     prefixes.value = prefixData["@prefixes"] || {};
+
+    // Fetch summaries in parallel
+    const [shapeSummary, pathSummary, focusNodeSummary, constraintSummary] = await Promise.all([
+      fetchSummary("/summaries/home/nodeshape"),
+      fetchSummary("/summaries/home/path"),
+      fetchSummary("/summaries/home/focus-node"),
+      fetchSummary("/summaries/home/constraint"),
+    ]);
+
+    summaries.shape.value = shapeSummary;
+    summaries.path.value = pathSummary;
+    summaries.focusNode.value = focusNodeSummary;
+    summaries.constraintComponent.value = constraintSummary;
+    summariesLoaded.value = true;
 
     // Fetch all statistics in parallel
     const [

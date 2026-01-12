@@ -1,5 +1,18 @@
 <template>
   <div class="shape-overview p-4">
+    <!-- Header with Download Button -->
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold text-gray-700">Shape Overview</h1>
+      <button
+        @click="downloadAllSummaries"
+        class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
+        :disabled="!summariesLoaded"
+      >
+        <font-awesome-icon :icon="['fas', 'download']" />
+        Download Summaries
+      </button>
+    </div>
+
     <!-- Tags Section -->
     <div class="grid grid-cols-4 gap-4 mb-4">
       <div
@@ -300,6 +313,67 @@ const normalizedHistogramData = {
     },
   ],
 };
+
+let summaries = {
+  constraint: ref("Loading ..."),
+  correlation: ref("Loading ..."),
+  diversity: ref("Loading ..."),
+}
+
+// Track if summaries are loaded
+const summariesLoaded = ref(false);
+
+async function fetchSummary(endpoint) {
+  try {
+    const response = await fetch(`http://localhost:5000${endpoint}?level=high`);
+    if (!response.ok) {
+      return "Error loading summary";
+    }
+    const data = await response.json();
+    return data.summary || "No summary available";
+  } catch (error) {
+    console.error(`Error fetching summary from ${endpoint}:`, error);
+    return "Error loading summary";
+  }
+}
+
+onMounted(async () => {
+  summaries.constraint.value = await fetchSummary("/summaries/shapes/distribution-constraint");
+  summaries.correlation.value = await fetchSummary("/summaries/shapes/correlation");
+  summaries.diversity.value = await fetchSummary("/summaries/shapes/diversity-intensity");
+  summariesLoaded.value = true;
+})
+
+// Function to download all summaries as a text file
+function downloadAllSummaries() {
+  const summaryContent = `SHACL Dashboard - Shape Overview Summary Report
+Generated: ${new Date().toLocaleString()}
+========================================
+
+1. DISTRIBUTION OF VIOLATIONS PER CONSTRAINT
+========================================
+${summaries.constraint.value}
+
+2. CORRELATION BETWEEN CONSTRAINTS AND VIOLATIONS
+========================================
+${summaries.correlation.value}
+
+3. VIOLATION DIVERSITY AND INTENSITY
+========================================
+${summaries.diversity.value}
+`;
+
+  // Create a blob and download
+  const blob = new Blob([summaryContent], { type: 'text/plain' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `shacl-shape-overview-summaries-${new Date().toISOString().split('T')[0]}.txt`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
 
 const columns = ref([
   { label: "Node Shape Name", field: "name" },
