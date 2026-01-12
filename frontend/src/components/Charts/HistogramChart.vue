@@ -2,7 +2,7 @@
   <div class="chart-card ">
     <div class="chart-header flex justify-between items-center">
       <h3 class="inline-flex items-center gap-2" v-html="title"></h3>
-      <ToggleQuestionMark :explanation="explanationText" />
+      <ToggleSummaryButton :endpoint="endpoint" />
     </div>
     <div class="chart-body w-full ">
       <canvas v-if="hasData" ref="histogramCanvas"></canvas>
@@ -31,7 +31,6 @@
  * @prop {string} [title=''] - Title displayed above the chart
  * @prop {string} [xAxisLabel=''] - Label for the x-axis
  * @prop {string} [yAxisLabel=''] - Label for the y-axis
- * @prop {string} [explanationText=''] - Text for explanation tooltip
  *
  * @dependencies
  * - vue (Composition API)
@@ -44,7 +43,7 @@
 import { onMounted, ref, computed, watch, nextTick } from 'vue';
 import { Chart } from 'chart.js';
 import { chartTheme } from './../../assets/chartTheme'; // Ensure the path to your chartTheme file is correct
-import ToggleQuestionMark from "../Reusable/ToggleQuestionMark.vue";
+import ToggleSummaryButton from "../Reusable/ToggleSummaryButton.vue";
 
 const props = defineProps({
   title: {
@@ -66,9 +65,9 @@ const props = defineProps({
       return value.labels && value.datasets;
     },
   },
-  explanationText: {
-    type: String,
-    default: '',
+  endpoint: {
+    type: Function,
+    required: true,
   },
 });
 
@@ -77,17 +76,17 @@ const chartInstance = ref(null);
 
 // Check if data is available and valid
 const hasData = computed(() => {
-  return props.data && 
-         props.data.labels && 
-         props.data.labels.length > 0 && 
-         props.data.datasets && 
+  return props.data &&
+         props.data.labels &&
+         props.data.labels.length > 0 &&
+         props.data.datasets &&
          props.data.datasets.length > 0;
 });
 
 // Function to create the chart
 const createChart = () => {
   if (!histogramCanvas.value || chartInstance.value) return;
-  
+
   // Apply global defaults for Chart.js using chartTheme
   Chart.defaults.color = chartTheme.defaults.textColor;
   Chart.defaults.borderColor = chartTheme.defaults.gridlineColor;

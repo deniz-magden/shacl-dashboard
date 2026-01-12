@@ -44,7 +44,7 @@
  */
 import Plotly from "plotly.js-dist-min";
 import { ref, onMounted, watch } from "vue";
-import ToggleQuestionMark from "../Reusable/ToggleQuestionMark.vue";
+import ToggleSummaryButton from "../Reusable/ToggleQuestionMark.vue";
 
 export default {
   name: "BoxPlotChart",

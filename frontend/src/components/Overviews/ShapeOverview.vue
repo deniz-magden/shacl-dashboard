@@ -21,7 +21,7 @@
         :xAxisLabel="'Number of Violations per Constraint'"
         :yAxisLabel="'Number of Node Shapes'"
         :data="normalizedHistogramViolationData"
-        :explanationText="summaries.constraint.value"
+        :endpoint="api.getDistributionSummary"
       />
       <ScatterPlotChart
         :title="'Correlation Between Constraints and Violations'"
@@ -29,7 +29,7 @@
         :yAxisLabel="'Violations / Constraint'"
         :data="coveragePlotData"
         :showQuadrants="true"
-        :explanationText="summaries.correlation.value"
+        :endpoint="api.getCorrelationSummary"
       />
       <ScatterPlotChart
         :title="'Violation Diversity and Intensity'"
@@ -37,8 +37,7 @@
         :yAxisLabel="'Violations / Constraints'"
         :data="scatterPlotData"
         :showQuadrants="true"
-        :explanationText="summaries.diversity.value"
-
+        :endpoint="api.getDiversitySummary"
       />
     </div>
 
@@ -139,6 +138,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { calculateShannonEntropy } from "./../../utils/utils"; // Assume you have this utility function
 import axios from 'axios';
+import * as api from "../../services/api.js";
 
 const shapeViolations2 = ref([
   { name: "PersonShape", violations: { "sh:minCount": 20, "sh:datatype": 10 }, totalViolations: 30, constraints: 10 },
@@ -300,32 +300,6 @@ const normalizedHistogramData = {
     },
   ],
 };
-
-let summaries = {
-  constraint: ref("Loading ..."),
-  correlation: ref("Loading ..."),
-  diversity: ref("Loading ..."),
-}
-
-async function fetchSummary(endpoint) {
-  try {
-    const response = await fetch(`http://localhost:5000${endpoint}?level=high`);
-    if (!response.ok) {
-      return "Error loading summary";
-    }
-    const data = await response.json();
-    return data.summary || "No summary available";
-  } catch (error) {
-    console.error(`Error fetching summary from ${endpoint}:`, error);
-    return "Error loading summary";
-  }
-}
-
-onMounted(async () => {
-  summaries.constraint.value = await fetchSummary("/summaries/shapes/distribution-constraint");
-  summaries.correlation.value = await fetchSummary("/summaries/shapes/correlation");
-  summaries.diversity.value = await fetchSummary("/summaries/shapes/diversity-intensity");
-})
 
 const columns = ref([
   { label: "Node Shape Name", field: "name" },

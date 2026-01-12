@@ -1,19 +1,19 @@
 /**
  * API Service Module
- * 
+ *
  * Centralized API communication layer for the SHACL Dashboard frontend.
  * Handles all HTTP requests to the Flask backend API endpoints.
- * 
+ *
  * Base URL Configuration:
  * - Development: Defaults to http://localhost:5000 (Flask backend)
  * - Production: Uses window.location.origin (same server)
- * 
+ *
  * @module services/api
  */
 
 // Configure API base URL based on environment
-const API_BASE_URL = import.meta.env.PROD 
-  ? window.location.origin 
+const API_BASE_URL = import.meta.env.PROD
+  ? window.location.origin
   : 'http://localhost:5000';
 
 /**
@@ -211,4 +211,81 @@ export async function getViolationsPerPath() {
  */
 export async function getViolationsPerFocusNode() {
   return apiRequest('/homepage/validation-report/focus-nodes/violations');
+}
+
+/**
+ * Get summary for Node Shape Graph
+ * @param {string} [level="high"] - Toggle between Simple (high) and Detailed (low) summary
+ * @param {boolean} [use_llm = false] - Toggle LLM Enhancement Usage
+ * @returns {Promise<Object>} Summary object
+ */
+export async function getShapeSummary(level= "high", use_llm = false) {
+  const params = `?level=${encodeURIComponent(level)}&use_llm=${encodeURIComponent(use_llm)}`;
+  return apiRequest(`/summaries/home/nodeshape${params}`);
+}
+
+/**
+ * Get summary for Path Graph
+ * @param {string} [level="high"] - Toggle between Simple (high) and Detailed (low) summary
+ * @param {boolean} [use_llm=false] - Toggle LLM Enhancement Usage
+ * @returns {Promise<Object>} Summary object
+ */
+export async function getPathSummary(level= "high", use_llm = false) {
+  const params = `?level=${encodeURIComponent(level)}&use_llm=${encodeURIComponent(use_llm)}`;
+  return apiRequest(`/summaries/home/path${params}`);
+}
+
+/**
+ * Get summary for Focus Node Graph
+ * @param {string} [level="high"] - Toggle between Simple (high) and Detailed (low) summary
+ * @param {boolean} [use_llm=false] - Toggle LLM Enhancement Usage
+ * @returns {Promise<Object>} Summary object
+ */
+export async function getFocusNodeSummary(level= "high", use_llm = false) {
+  const params = `?level=${encodeURIComponent(level)}&use_llm=${encodeURIComponent(use_llm)}`;
+  return apiRequest(`/summaries/home/focus-node${params}`);
+}
+
+/**
+ * Get summary for Constraint Component Graph
+ * @param {string} [level="high"] - Toggle between Simple (high) and Detailed (low) summary
+ * @param {boolean} [use_llm=false] - Toggle LLM Enhancement Usage
+ * @returns {Promise<Object>} Summary object
+ */
+export async function getConstraintSummary(level= "high", use_llm = false) {
+  const params = `?level=${encodeURIComponent(level)}&use_llm=${encodeURIComponent(use_llm)}`;
+  return apiRequest(`/summaries/home/constraint${params}`);
+}
+
+/**
+ * Get summary for Distribution of Violations per Constraint Graph
+ * @param {string} [level="high"] - Toggle between Simple (high) and Detailed (low) summary
+ * @param {boolean} [use_llm=false] - Toggle LLM Enhancement Usage
+ * @returns {Promise<Object>} Summary object
+ */
+export async function getDistributionSummary(level= "high", use_llm = false) {
+  const params = `?level=${encodeURIComponent(level)}&use_llm=${encodeURIComponent(use_llm)}`;
+  return apiRequest(`/summaries/shapes/distribution-constraint${params}`);
+}
+
+/**
+ * Get summary for Correlation Between Constraints and Violations Graph
+ * @param {string} [level="high"] - Toggle between Simple (high) and Detailed (low) summary
+ * @param {boolean} [use_llm=false] - Toggle LLM Enhancement Usage
+ * @returns {Promise<Object>} Summary object
+ */
+export async function getCorrelationSummary(level= "high", use_llm = false) {
+  const params = `?level=${encodeURIComponent(level)}&use_llm=${encodeURIComponent(use_llm)}`;
+  return apiRequest(`/summaries/shapes/correlation${params}`);
+}
+
+/**
+ * Get summary for Violation Diversity and Intensity Graph
+ * @param {string} [level="high"] - Toggle between Simple (high) and Detailed (low) summary
+ * @param {boolean} [use_llm=false] - Toggle LLM Enhancement Usage
+ * @returns {Promise<Object>} Summary object
+ */
+export async function getDiversitySummary(level= "high", use_llm = false) {
+  const params = `?level=${encodeURIComponent(level)}&use_llm=${encodeURIComponent(use_llm)}`;
+  return apiRequest(`/summaries/shapes/diversity-intensity${params}`);
 }

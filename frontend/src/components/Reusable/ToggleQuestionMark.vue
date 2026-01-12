@@ -1,40 +1,16 @@
 <template>
-  <div class="relative group inline-block z-50" @mouseenter="adjustPosition">
+  <div class="relative group inline-block z-50">
     <!-- Blue Circle with Question Mark -->
-    <div class="w-6 h-6 bg-gray-500 text-white flex items-center justify-center rounded-full cursor-pointer" @click="openDialog">
+    <div class="w-6 h-6 bg-gray-500 text-white flex items-center justify-center rounded-full cursor-pointer">
       ?
     </div>
     <!-- Tooltip -->
     <div
-      ref="tooltip"
-      class="absolute hidden group-hover:block bg-gray-100 text-gray-800 text-sm p-2 rounded shadow-md w-96 mt-2 right-0 z-50 transition-transform"
-      :class="tooltipClass"
+      class="absolute hidden group-hover:block bg-gray-100 text-gray-800 text-sm p-2 rounded shadow-md w-64 mt-2 right-0 transform translate-x-full z-50"
     >
-      <p class="line-clamp-2 whitespace-pre-line">
-        {{ explanation }}
-      </p>
-      <span class="text-xs text-gray-500">Click to expand</span>
+      {{ explanation }}
     </div>
   </div>
-
-  <!-- Dialog -->
-  <dialog
-    ref="dialog"
-    class="fixed m-auto rounded-lg p-6 w-[600px] max-w-[90vw] backdrop:bg-black/40"
-  >
-    <div class="flex justify-between items-start mb-4">
-      <h3 class="text-lg font-semibold">Summary</h3>
-      <button class="text-gray-500 hover:text-black" @click="closeDialog">X</button>
-    </div>
-
-    <div class="max-h-[60vh] whitespace-pre-line text-sm">
-      {{explanation}}
-    </div>
-
-    <div class="mt-4 text-right">
-      <button class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" @click="closeDialog">Close</button>
-    </div>
-  </dialog>
 </template>
 
 <script setup>
@@ -61,7 +37,7 @@
  * @returns {HTMLElement} A circular question mark icon with a hover-triggered tooltip
  * that displays the explanation text provided as a prop, positioned to the right of the icon.
  */
-import { defineProps, ref } from 'vue';
+import { defineProps } from 'vue';
 
 // Define props to allow customization of explanation text
 defineProps({
@@ -70,28 +46,6 @@ defineProps({
     required: true
   }
 });
-
-// Relocate tooltip to stay inside the window
-const tooltip = ref(null);
-const tooltipClass = ref('translate-x-full');
-
-function adjustPosition() {
-  const rect = tooltip.value?.getBoundingClientRect();
-  if (rect.right > window.innerWidth) {
-    tooltipClass.value = 'translate-x-2';
-  }
-}
-
-// Dialog window functionality
-const dialog = ref(null);
-
-function openDialog() {
-  dialog.value?.showModal();
-}
-
-function closeDialog() {
-  dialog.value?.close();
-}
 </script>
 
 <style scoped>

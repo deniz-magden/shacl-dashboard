@@ -127,8 +127,8 @@
             <g>
               <template v-for="(row, i) in processedData.violations" :key="`row-${i}`">
                 <template v-for="(value, j) in row" :key="`cell-${i}-${j}`">
-                  <g 
-                    @mouseenter="showTooltip(i, j, $event)" 
+                  <g
+                    @mouseenter="showTooltip(i, j, $event)"
                     @mouseleave="hideTooltip"
                     class="cell-group"
                   >
@@ -197,7 +197,7 @@
  */
 import { computed, ref , onMounted, onUnmounted} from "vue";
 import { chartTheme } from "./../../assets/chartTheme";
-import ToggleQuestionMark from "../Reusable/ToggleQuestionMark.vue";
+import ToggleSummaryButton from "../Reusable/ToggleQuestionMark.vue";
 import * as d3 from "d3-scale";
 
 const props = defineProps({
@@ -267,8 +267,8 @@ const showTooltip = (i, j, event) => {
   tooltipContent.value = `${processedData.value.properties[i]}: ${processedData.value.violations[i][j]} violations for ${processedData.value.constraints[j]}`;
   tooltipVisible.value = true;
 
-  const mouseX = event.clientX; 
-  const mouseY = event.clientY; 
+  const mouseX = event.clientX;
+  const mouseY = event.clientY;
 
   tooltipStyle.value = {
     left: `${mouseX + 10}px`,
@@ -295,7 +295,7 @@ const processedData = computed(() => {
 
   inputData.forEach((entry) => {
     if (!entry.PropertyShape || !entry.Constraints) return;
-    
+
     propertiesSet.add(entry.PropertyShape);
     entry.Constraints.forEach((constraint) => {
       if (constraint.Constraint) constraintsSet.add(constraint.Constraint);

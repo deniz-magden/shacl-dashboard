@@ -44,7 +44,7 @@
 import { ref, onMounted, watch } from "vue";
 import { Chart, registerables } from "chart.js";
 import { chartTheme } from "./../../assets/chartTheme"; // Ensure the path is correct
-import ToggleQuestionMark from "../Reusable/ToggleQuestionMark.vue";
+import ToggleSummaryButton from "../Reusable/ToggleQuestionMark.vue";
 
 Chart.register(...registerables);
 

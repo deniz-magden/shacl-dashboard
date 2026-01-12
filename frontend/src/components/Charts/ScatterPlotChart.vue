@@ -4,7 +4,7 @@
       <h3 class="inline-flex items-center gap-2">
         {{ title }}
       </h3>
-      <ToggleQuestionMark :explanation="explanationText" />
+      <ToggleSummaryButton :endpoint="endpoint" />
     </div>
     <div class="chart-body">
       <canvas ref="chartCanvas"></canvas>
@@ -45,7 +45,7 @@ import { ref, onMounted, watch } from 'vue';
 import { Chart, registerables } from 'chart.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import { chartTheme } from './../../assets/chartTheme'; // Ensure the path to your chartTheme file is correct
-import ToggleQuestionMark from "../Reusable/ToggleQuestionMark.vue";
+import ToggleSummaryButton from "../Reusable/ToggleSummaryButton.vue";
 
 Chart.register(...registerables, annotationPlugin);
 
@@ -86,9 +86,9 @@ const props = defineProps({
       highLow: 'Rare Cases',
     }),
   },
-  explanationText: {
-    type: String,
-    required: true, // Ensure explanation is provided
+  endpoint: {
+    type: Function,
+    required: true,
   },
 });
 
