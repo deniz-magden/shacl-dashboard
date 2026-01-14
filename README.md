@@ -62,9 +62,16 @@ cd backend
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
+
+# Set OpenAI API key for LLM-based semantic classification (optional)
+export OPENAI_API_KEY="your-api-key-here"
+# On Windows Command Prompt: set OPENAI_API_KEY=your-api-key-here
+
 # You might need to run with admin privileges since it uses port 80
 sudo python app.py  # On Windows: run as Administrator
 ```
+
+**Note**: The `OPENAI_API_KEY` environment variable is optional. If set, it enables LLM-based semantic classification for enhanced label categorization in validation summaries. Without it, the dashboard will use keyword-based classification instead.
 
 3. Set up the Frontend:
 

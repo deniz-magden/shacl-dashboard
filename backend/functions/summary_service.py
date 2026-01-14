@@ -562,14 +562,25 @@ def _example_terms(labels: Iterable[str], category: str, k: int = 2) -> List[str
     """
     labels = list(labels)
     examples: List[str] = []
+    seen_cleaned = set()  # Track cleaned labels to avoid duplicates
     if category != "generic":
         for lab in labels:
-            if analyze_label_semantics(lab) == category:
-                examples.append(clean_label(lab))
+            cleaned = clean_label(lab)
+            if cleaned not in seen_cleaned and analyze_label_semantics(lab) == category:
+                examples.append(cleaned)
+                seen_cleaned.add(cleaned)
             if len(examples) >= k:
                 break
     if not examples:
-        examples = [clean_label(l) for l in labels[:k]]
+        # Deduplicate cleaned labels while preserving order
+        seen_cleaned = set()
+        for l in labels:
+            cleaned = clean_label(l)
+            if cleaned not in seen_cleaned:
+                examples.append(cleaned)
+                seen_cleaned.add(cleaned)
+            if len(examples) >= k:
+                break
     return examples
 
 
@@ -903,7 +914,7 @@ def summarize_nodeshape_with_templates(
                 "The counts are relatively consistent across shapes, suggesting similar data quality levels, "
                 "though the distribution is not concentrated in a single range."
             )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     # Use adaptive threshold for share_max check
     if share_max > cluster_threshold and vmax >= dom_high:
@@ -917,7 +928,7 @@ def summarize_nodeshape_with_templates(
             f"While most of them fall into {range_text} violations, "
             f"the shape{'s' if max_indices_count > 1 else ''} {formatted_name} {'are' if max_indices_count > 1 else 'is'} responsible for about {_format_percentage(perc_out, level)}% of all issues and should be reviewed first."
         )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if not has_outliers:
         if len(dom_ranges) == 1:
@@ -929,7 +940,7 @@ def summarize_nodeshape_with_templates(
             "meaning that many data entities of this type likely share similar rule issues. "
             "This indicates that most of the problems are concentrated and probably relate to a recurring pattern in these shapes."
         )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if len(dom_ranges) == 1:
         range_text = f"the range of {dom_range_str}"
@@ -996,7 +1007,14 @@ def summarize_path_with_templates(
     counts = [int(item["NumViolations"]) for item in path_data] if path_data else []
     labels_path = [item["PathName"] for item in path_data] if path_data else []
 
-    total_paths = len(counts)
+    # Get total number of paths from shapes graph (not just violated ones)
+    try:
+        shapes_uri = shapes_graph_uri or SHAPES_GRAPH_URI
+        total_paths = homepage_service.get_number_of_paths_in_shapes_graph(graph_uri=shapes_uri)
+    except Exception:
+        # Fallback: if we can't get total, use count from report (but this will show 100%)
+        total_paths = len(counts)
+    
     violated_counts = [c for c in counts if c > 0]
     violated_paths = len(violated_counts)
     
@@ -1134,7 +1152,7 @@ def summarize_path_with_templates(
                 "The counts are relatively consistent across paths, suggesting similar data quality levels, "
                 "though the distribution is not concentrated in a single range."
             )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if share_max > cluster_threshold and vmax >= dom_high:
         perc_out = _percentage(max_val, sum(counts) or 1, level)
@@ -1147,7 +1165,7 @@ def summarize_path_with_templates(
             f"While most of them fall into {range_text} violations, "
             f"the path{'s' if max_indices_count > 1 else ''} {formatted_name} {'are' if max_indices_count > 1 else 'is'} responsible for about {_format_percentage(perc_out, level)}% of all issues and should be reviewed first."
         )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if not has_outliers:
         if len(dom_ranges) == 1:
@@ -1158,7 +1176,7 @@ def summarize_path_with_templates(
             f"The violations are distributed across multiple paths. The most common values lie in {range_text}. "
             "This indicates that most of the problems are concentrated and probably relate to a recurring pattern in some node shapes regarding these paths."
         )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if len(dom_ranges) == 1:
         range_text = f"the range of {dom_range_str}"
@@ -1249,7 +1267,17 @@ def summarize_focusnode_with_templates(
             )
             if dom_category:
                 entity_word_plural = dom_category
-                examples = [clean_label(l) for l in list(labels_fn)[:2]]
+                # Get unique examples to avoid duplicates (deduplicate after cleaning since different URIs may clean to same name)
+                cleaned_labels = []
+                seen_cleaned = set()
+                for l in labels_fn:
+                    cleaned = clean_label(l)
+                    if cleaned not in seen_cleaned:
+                        cleaned_labels.append(cleaned)
+                        seen_cleaned.add(cleaned)
+                        if len(cleaned_labels) >= 2:
+                            break
+                examples = cleaned_labels
                 use_semantic = True
             else:
                 # Fallback to keyword-based if LLM fails
@@ -1293,9 +1321,6 @@ def summarize_focusnode_with_templates(
 
     if violated_nodes == 0:
         return intro + " No focus nodes are violated."
-    else:
-        perc = _percentage(violated_nodes, total_nodes, level)
-        perc_sentence = f"{_format_percentage(perc, level)}% of focus nodes are violated."
 
     dist = homepage_service.distribution_of_violations_per_focus_node(validation_report_uri=report_uri)
     labels = dist.get("labels", [])
@@ -1315,8 +1340,8 @@ def summarize_focusnode_with_templates(
                     f"Violation counts range from {min_v} to {max_v}. "
                     "The counts are relatively consistent across focus nodes, suggesting similar data quality levels."
                 )
-            return " ".join([intro, perc_sentence, spread_sentence])
-        return " ".join([intro, perc_sentence])
+            return " ".join([intro, spread_sentence])
+        return intro
 
     total_bins = sum(freqs) or 1
     max_freq = max(freqs)
@@ -1387,7 +1412,7 @@ def summarize_focusnode_with_templates(
                 "The counts are relatively consistent across focus nodes, suggesting similar data quality levels, "
                 "though the distribution is not concentrated in a single range."
             )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if share_max > cluster_threshold and vmax >= dom_high:
         perc_out = _percentage(max_val, sum(counts) or 1, level)
@@ -1400,7 +1425,7 @@ def summarize_focusnode_with_templates(
             f"Although most of them fall into {range_text} violations, "
             f"the node{'s' if max_indices_count > 1 else ''} {formatted_name} {'are' if max_indices_count > 1 else 'is'} responsible for most issues out of all nodes and should be reviewed first."
         )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if not has_outliers:
         if len(dom_ranges) == 1:
@@ -1412,7 +1437,7 @@ def summarize_focusnode_with_templates(
             "meaning that the majority of individual records have a similar number of rule issues. "
             "This suggests that the problems are systematic and likely affect many entries in the same way."
         )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if len(dom_ranges) == 1:
         range_text = f"a range of {dom_range_str}"
@@ -1423,7 +1448,7 @@ def summarize_focusnode_with_templates(
         f"a few nodes show unusually high counts of up to {vmax} violations. "
         "These outliers likely need targeted review, as they contain most of the problematic data."
     )
-    return " ".join([intro, perc_sentence, body])
+    return " ".join([intro, body])
 
 
 def home_focusnode_hist(
@@ -1509,7 +1534,14 @@ def summarize_constraint_with_templates(
     counts = [int(item["NumViolations"]) for item in constraint_data] if constraint_data else []
     labels_cc = [item["ConstraintComponentName"] for item in constraint_data] if constraint_data else []
 
-    total_constraints = len(counts)
+    # Get total number of constraint components from shapes graph (not just violated ones)
+    try:
+        shapes_uri = shapes_graph_uri or SHAPES_GRAPH_URI
+        total_constraints = homepage_service.get_distinct_constraints_count_in_shapes(shapes_graph_uri=shapes_uri)
+    except Exception:
+        # Fallback: if we can't get total, use count from report (but this will show 100%)
+        total_constraints = len(counts)
+    
     violated_counts = [c for c in counts if c > 0]
     violated_constraints = len(violated_counts)
     
@@ -1657,7 +1689,7 @@ def summarize_constraint_with_templates(
                 "The counts are relatively consistent across constraint components, suggesting similar violation rates, "
                 "though the distribution is not concentrated in a single range."
             )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if share_max > cluster_threshold and vmax >= dom_high:
         perc_out = _percentage(max_val, sum(counts) or 1, level)
@@ -1672,7 +1704,7 @@ def summarize_constraint_with_templates(
             "meaning that this requirement is frequently not met. "
             "This indicates a systematic issue, such as missing values or incorrect formats."
         )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if not has_outliers:
         if len(dom_ranges) == 1:
@@ -1683,7 +1715,7 @@ def summarize_constraint_with_templates(
             f"The different rule types are mostly violated at similar levels in {range_text}. "
             "No single rule stands out, which suggests that the data issues are broad and not limited to any particular rule."
         )
-        return " ".join([intro, perc_sentence, body])
+        return " ".join([intro, body])
 
     if len(dom_ranges) == 1:
         range_text = f"range of {dom_range_str}"
