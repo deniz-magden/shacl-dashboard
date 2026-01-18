@@ -3,14 +3,36 @@
     <!-- Header with Download Button -->
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-2xl font-bold text-gray-700">Shape Overview</h1>
-      <button
-        @click="downloadAllSummaries"
-        class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
-        :disabled="!summariesLoaded"
-      >
-        <font-awesome-icon :icon="['fas', 'download']" />
-        Download Summaries
-      </button>
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-3 text-sm text-gray-600">
+          <label class="flex items-center gap-2">
+            <span>Detail</span>
+            <select
+              v-model="summaryLevel"
+              class="border border-gray-300 rounded px-2 py-1 bg-white"
+            >
+              <option value="high">Less detailed</option>
+              <option value="low">More detailed</option>
+            </select>
+          </label>
+          <label class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              v-model="summaryUseLlm"
+              class="accent-blue-500"
+            >
+            LLM
+          </label>
+        </div>
+        <button
+          @click="downloadAllSummaries"
+          class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
+          :disabled="!summariesLoaded"
+        >
+          <font-awesome-icon :icon="['fas', 'download']" />
+          Download Summaries
+        </button>
+      </div>
     </div>
 
     <!-- Tags Section -->
@@ -147,7 +169,7 @@
 // Importing components
 import HistogramChart from './../Charts/HistogramChart.vue';
 import ScatterPlotChart from './../Charts/ScatterPlotChart.vue';
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { calculateShannonEntropy } from "./../../utils/utils"; // Assume you have this utility function
 import axios from 'axios';
@@ -320,12 +342,20 @@ let summaries = {
   diversity: ref("Loading ..."),
 }
 
+// Summary options
+const summaryLevel = ref("high");
+const summaryUseLlm = ref(false);
+
 // Track if summaries are loaded
 const summariesLoaded = ref(false);
 
-async function fetchSummary(endpoint) {
+async function fetchSummary(endpoint, level, useLlm) {
   try {
-    const response = await fetch(`http://localhost:5000${endpoint}?level=high`);
+    const params = new URLSearchParams({
+      level,
+      use_llm: String(useLlm),
+    });
+    const response = await fetch(`http://localhost:5000${endpoint}?${params.toString()}`);
     if (!response.ok) {
       return "Error loading summary";
     }
@@ -337,17 +367,32 @@ async function fetchSummary(endpoint) {
   }
 }
 
-onMounted(async () => {
-  summaries.constraint.value = await fetchSummary("/summaries/shapes/distribution-constraint");
-  summaries.correlation.value = await fetchSummary("/summaries/shapes/correlation");
-  summaries.diversity.value = await fetchSummary("/summaries/shapes/diversity-intensity");
+async function loadSummaries() {
+  summariesLoaded.value = false;
+  const [constraintSummary, correlationSummary, diversitySummary] = await Promise.all([
+    fetchSummary("/summaries/shapes/distribution-constraint", summaryLevel.value, summaryUseLlm.value),
+    fetchSummary("/summaries/shapes/correlation", summaryLevel.value, summaryUseLlm.value),
+    fetchSummary("/summaries/shapes/diversity-intensity", summaryLevel.value, summaryUseLlm.value),
+  ]);
+
+  summaries.constraint.value = constraintSummary;
+  summaries.correlation.value = correlationSummary;
+  summaries.diversity.value = diversitySummary;
   summariesLoaded.value = true;
+}
+
+watch([summaryLevel, summaryUseLlm], loadSummaries);
+
+onMounted(async () => {
+  await loadSummaries();
 })
 
 // Function to download all summaries as a text file
 function downloadAllSummaries() {
   const summaryContent = `SHACL Dashboard - Shape Overview Summary Report
 Generated: ${new Date().toLocaleString()}
+Level: ${summaryLevel.value}
+LLM: ${summaryUseLlm.value ? "on" : "off"}
 ========================================
 
 1. DISTRIBUTION OF VIOLATIONS PER CONSTRAINT

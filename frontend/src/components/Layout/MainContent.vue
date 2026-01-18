@@ -3,14 +3,36 @@
     <!-- Header with Download Button -->
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-2xl font-bold text-gray-700">Dashboard Overview</h1>
-      <button
-        @click="downloadAllSummaries"
-        class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
-        :disabled="!summariesLoaded"
-      >
-        <font-awesome-icon :icon="['fas', 'download']" />
-        Download Summaries
-      </button>
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-3 text-sm text-gray-600">
+          <label class="flex items-center gap-2">
+            <span>Detail</span>
+            <select
+              v-model="summaryLevel"
+              class="border border-gray-300 rounded px-2 py-1 bg-white"
+            >
+              <option value="high">Less detailed</option>
+              <option value="low">More detailed</option>
+            </select>
+          </label>
+          <label class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              v-model="summaryUseLlm"
+              class="accent-blue-500"
+            >
+            LLM
+          </label>
+        </div>
+        <button
+          @click="downloadAllSummaries"
+          class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
+          :disabled="!summariesLoaded"
+        >
+          <font-awesome-icon :icon="['fas', 'download']" />
+          Download Summaries
+        </button>
+      </div>
     </div>
 
     <!-- Tags Section -->
@@ -157,7 +179,7 @@
  * at the top, a visualization section with multiple histograms in the middle, and a
  * comprehensive data table showing validation details at the bottom.
  */
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch } from "vue";
 import HistogramChart from "./../Charts/HistogramChart.vue";
 import PieChart from "./../Charts/PieChart.vue";
 import Tag from "./../Reusable/Tag.vue";
@@ -258,6 +280,10 @@ const constraintComponentHistogramData = ref({
   ],
 });
 
+// Summary options
+const summaryLevel = ref("high");
+const summaryUseLlm = ref(false);
+
 // Summaries for explanation text
 const summaries = {
   shape: ref("Loading..."),
@@ -270,9 +296,13 @@ const summaries = {
 const summariesLoaded = ref(false);
 
 // Helper function to fetch summaries
-async function fetchSummary(endpoint) {
+async function fetchSummary(endpoint, level, useLlm) {
   try {
-    const response = await fetch(`http://localhost:5000${endpoint}?level=high`);
+    const params = new URLSearchParams({
+      level,
+      use_llm: String(useLlm),
+    });
+    const response = await fetch(`http://localhost:5000${endpoint}?${params.toString()}`);
     if (!response.ok) {
       return "Error loading summary";
     }
@@ -284,10 +314,30 @@ async function fetchSummary(endpoint) {
   }
 }
 
+async function loadSummaries() {
+  summariesLoaded.value = false;
+  const [shapeSummary, pathSummary, focusNodeSummary, constraintSummary] = await Promise.all([
+    fetchSummary("/summaries/home/nodeshape", summaryLevel.value, summaryUseLlm.value),
+    fetchSummary("/summaries/home/path", summaryLevel.value, summaryUseLlm.value),
+    fetchSummary("/summaries/home/focus-node", summaryLevel.value, summaryUseLlm.value),
+    fetchSummary("/summaries/home/constraint", summaryLevel.value, summaryUseLlm.value),
+  ]);
+
+  summaries.shape.value = shapeSummary;
+  summaries.path.value = pathSummary;
+  summaries.focusNode.value = focusNodeSummary;
+  summaries.constraintComponent.value = constraintSummary;
+  summariesLoaded.value = true;
+}
+
+watch([summaryLevel, summaryUseLlm], loadSummaries);
+
 // Function to download all summaries as a text file
 function downloadAllSummaries() {
   const summaryContent = `SHACL Dashboard - Summary Report
 Generated: ${new Date().toLocaleString()}
+Level: ${summaryLevel.value}
+LLM: ${summaryUseLlm.value ? "on" : "off"}
 ========================================
 
 1. VIOLATIONS PER NODE SHAPE
@@ -325,20 +375,7 @@ onMounted(async () => {
     // First, fetch prefixes from validation details (just get 1 record to get prefixes quickly)
     const prefixData = await api.getValidationDetailsReport(1, 0);
     prefixes.value = prefixData["@prefixes"] || {};
-
-    // Fetch summaries in parallel
-    const [shapeSummary, pathSummary, focusNodeSummary, constraintSummary] = await Promise.all([
-      fetchSummary("/summaries/home/nodeshape"),
-      fetchSummary("/summaries/home/path"),
-      fetchSummary("/summaries/home/focus-node"),
-      fetchSummary("/summaries/home/constraint"),
-    ]);
-
-    summaries.shape.value = shapeSummary;
-    summaries.path.value = pathSummary;
-    summaries.focusNode.value = focusNodeSummary;
-    summaries.constraintComponent.value = constraintSummary;
-    summariesLoaded.value = true;
+    await loadSummaries();
 
     // Fetch all statistics in parallel
     const [
