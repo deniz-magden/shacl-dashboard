@@ -163,3 +163,4 @@ frontend/.cache/
 !.elasticbeanstalk/*.global.yml
 .elasticbeanstalk/config.yml
 .elasticbeanstalk/config.yml
+/.idea

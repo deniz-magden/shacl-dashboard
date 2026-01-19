@@ -7,6 +7,7 @@ from config import (
     ISQL_USERNAME, ISQL_PASSWORD, ISQL_PORT
 )
 from SPARQLWrapper import SPARQLWrapper, JSON
+from .prefix_utils import cache_prefixes, extract_prefixes_from_sparql_graphs
 
 """
 Landing Service Module
@@ -87,6 +88,20 @@ def load_graphs(directory: str, shapes_file: str, report_file: str, isql_port: s
         # Output success message
         print("ISQL command executed successfully!")
         print(process.stdout)
+        
+        # Extract prefixes from the actual SPARQL graphs
+        print("Extracting prefixes from SPARQL graphs...")
+        try:
+            prefixes = extract_prefixes_from_sparql_graphs(
+                ENDPOINT_URL,
+                [SHAPES_GRAPH_URI, VALIDATION_REPORT_URI]
+            )
+            cache_prefixes(prefixes)
+            print(f"Total prefixes cached: {len(prefixes)}")
+        except Exception as e:
+            print(f"Error extracting prefixes from SPARQL graphs: {e}")
+            print("Using minimal fallback prefixes")
+            cache_prefixes({'sh': 'http://www.w3.org/ns/shacl#'})
 
     except subprocess.CalledProcessError as e:
         # Handle command execution failure

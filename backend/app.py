@@ -33,6 +33,7 @@ app = Flask(__name__, static_folder=STATIC_FOLDER, static_url_path='')  # Use th
 CORS(app)
 
 # Register blueprints for API routes
+from routes import blueprints
 for blueprint in blueprints:
     app.register_blueprint(blueprint)
 
@@ -60,6 +61,20 @@ def serve_index():
         return send_file(index_path)
     else:
         print(f"File not found: {index_path}")
+        abort(404)
+
+# Catch-all route to serve index.html for Vue Router (must be last)
+@app.route('/<path:path>')
+def catch_all(path):
+    # Check if it's a request for a static file
+    file_path = os.path.join(STATIC_FOLDER, path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return send_file(file_path)
+    # Otherwise, serve index.html for Vue Router
+    index_path = os.path.join(STATIC_FOLDER, 'index.html')
+    if os.path.exists(index_path):
+        return send_file(index_path)
+    else:
         abort(404)
 
 if __name__ == '__main__':

@@ -1,5 +1,20 @@
 <template>
   <div class="bg-white border border-gray-200 p-6 rounded-lg shadow-lg relative">
+    <!-- Loading State -->
+    <div v-if="loading" class="text-center py-8">
+      <p class="text-gray-600">Loading property shapes...</p>
+    </div>
+
+    <!-- Error State -->
+    <div v-else-if="error" class="text-center py-8">
+      <p class="text-red-600">{{ error }}</p>
+      <button @click="loadPropertyShapes" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+        Retry
+      </button>
+    </div>
+
+    <!-- Main Content -->
+    <div v-else>
     <div class="flex justify-between items-center">
       <div class="flex items-center gap-4">
         <h2 class="text-2xl font-bold text-gray-700 mb-4">Property Shapes Overview</h2>
@@ -80,6 +95,7 @@
               :numberOfViolations="shape.numberOfViolations"
               :numberOfConstraints="shape.numberOfConstraints"
               :mostViolatedConstraint="shape.mostViolatedConstraint"
+              :violations="shape.violations"
             />
             </tbody>
         </table>
@@ -109,6 +125,7 @@
               </li>
             </ul>
         </div>
+    </div>
     </div>
 
   </template>
@@ -152,16 +169,30 @@
  * with title and action buttons (toggle prefixes, filter, download CSV), a sortable data table
  * with expandable rows, pagination controls, and an optional prefixes panel showing URI namespaces.
  */
-  import { ref, computed, onMounted } from 'vue';
+  import { ref, computed, onMounted, watch } from 'vue';
   import * as rdf from 'rdflib'; // Import rdflib.js
   import ShapeTableRow from './ShapeTableRow.vue'; // Import the ShapeTableRow component
   import ShapesTablePropertyShape from './ShapesTablePropertyShape.vue'; // Import the ShapeTableRow component
   import Filter from './Filter.vue';
+  import { getNodeShapeWithViolations } from '../../services/api.js';
+  import { usePrefixes } from '../../composables/usePrefixes.js';
+
+  // Define props
+  const props = defineProps({
+    nodeShape: {
+      type: String,
+      required: true
+    }
+  });
   
-  // Define table data and prefixes
+  // Use prefixes composable for URI formatting
+  const { loadPrefixes, formatURI, prefixes } = usePrefixes();
+  
+  // Define table data
   const tableData = ref([]);
   const tablesData = ref([]);
-  const prefixes = ref({});
+  const loading = ref(false);
+  const error = ref(null);
   
   const shapes = ref([]);
 
@@ -189,28 +220,41 @@
   const propertyShapes = ref([]);
   const expandedIndex = ref(null);
 
-  // Load property shapes data from JSON file
+  // Load property shapes data with violations from API
   const loadPropertyShapes = async () => {
+    if (!props.nodeShape) {
+      console.warn('No nodeShape provided to ShapesTable');
+      return;
+    }
+
+    loading.value = true;
+    error.value = null;
+
     try {
-      // Fetch data from property-shapes.json
-      const response = await fetch('./../reports/propertyShapes.json');
-      if (response.ok) {
-        const jsonData = await response.json();
+      // Load prefixes (cached after first call)
+      await loadPrefixes();
+      
+      // Fetch data with violations from new API endpoint
+      const response = await getNodeShapeWithViolations(props.nodeShape);
+      const jsonData = response.propertyShapes || [];
 
-        // Map the data to the required format
-        tablesData.value = jsonData.map((shape) => ({
-          propertyShapeName: formatURI(shape.PropertyShapeName),
-          numberOfViolations: formatURI(shape.NumViolations),
-          numberOfConstraints: formatURI(shape.NumConstraints),
-          mostViolatedConstraint: formatURI(shape.MostViolatedConstraint),
-        }));
+      // Map the data to the required format
+      tablesData.value = jsonData.map((shape) => ({
+        propertyShapeName: formatURI(shape.PropertyShapeName),
+        originalPropertyShapeName: shape.PropertyShapeName, // Keep original for backend calls
+        numberOfViolations: shape.NumViolations,
+        numberOfConstraints: shape.NumConstraints,
+        mostViolatedConstraint: formatURI(shape.MostViolatedConstraint || 'None'),
+        violations: shape.Violations || [], // Pass violations array to child
+      }));
 
-        console.log("Loaded Property Shapes Data:", tablesData.value); // Debug log
-      } else {
-        console.error('Failed to fetch property-shapes.json. Response not OK.');
-      }
-    } catch (error) {
-      console.error('Error fetching property-shapes.json:', error);
+      console.log("Loaded Property Shapes Data with Violations:", tablesData.value); // Debug log
+    } catch (err) {
+      console.error('Error fetching property shapes:', err);
+      error.value = 'Failed to load property shapes data. Please try again.';
+      tablesData.value = [];
+    } finally {
+      loading.value = false;
     }
   };
 
@@ -237,9 +281,18 @@
   return data;
 });
 
-  // Fetch data when the component is mounted
+  // Fetch data when the component is mounted (only if nodeShape is provided)
   onMounted(async () => {
-    await loadPropertyShapes();
+    if (props.nodeShape) {
+      await loadPropertyShapes();
+    }
+  });
+
+  // Watch for nodeShape changes and reload data
+  watch(() => props.nodeShape, async (newValue) => {
+    if (newValue) {
+      await loadPropertyShapes();
+    }
   });
 
   // Toggle the visibility of details for a specific row
@@ -349,42 +402,7 @@
   }
 };
   
-  // Function to replace full URI with prefix
-  const replacePrefix = (uri) => {
-    for (const prefix in prefixes.value) {
-      if (uri.startsWith(prefixes.value[prefix])) {
-        return uri.replace(prefixes.value[prefix], `${prefix}:`);
-      }
-    }
-    return uri; // If no prefix found, return the URI as is
-  };
-
   const showFullPrefixes = ref(false); // State to track prefix expansion
-
-  const formatURI = (uri) => {
-  if (!uri || typeof uri !== "string") return uri; // Ensure valid input
-
-  console.log("Processing URI:", uri);
-
-  let matchedPrefix = null;
-  let matchedNamespace = null;
-
-  for (const [prefix, namespace] of Object.entries(prefixes.value)) {
-    if (uri.startsWith(namespace) && (!matchedNamespace || namespace.length > matchedNamespace.length)) {
-      matchedPrefix = prefix;
-      matchedNamespace = namespace;
-    }
-  }
-
-  if (matchedPrefix) {
-    const transformedURI = `${matchedPrefix}:${uri.slice(matchedNamespace.length)}`;
-    console.log(`Transformed "${uri}" → "${transformedURI}"`);
-    return transformedURI;
-  }
-
-  console.log(`No match for "${uri}". Returning original.`);
-  return uri; // Return as is if no prefix match
-};
 
 const showPrefixes = ref(false);
 

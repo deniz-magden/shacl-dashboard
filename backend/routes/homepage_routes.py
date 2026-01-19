@@ -305,9 +305,7 @@ def get_distinct_constraints_count_in_shapes_route():
 @homepage_bp.route('/homepage/violations/distribution-per-constraint-component', methods=['GET'])
 def get_distribution_of_violations_per_constraint_component_route():
     try:
-        validation_report_uri = request.args.get("validation_report_uri", default="http://ex.org/ValidationReport")
-        from functions.homepage_service import get_distribution_of_violations_per_constraint_component as get_distribution_func
-        result = get_distribution_func(validation_report_uri)
-        return jsonify(result), 200
+        result = get_distribution_of_violations_per_constraint_component()
+        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 400

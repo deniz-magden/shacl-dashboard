@@ -185,33 +185,10 @@ import PieChart from "./../Charts/PieChart.vue";
 import Tag from "./../Reusable/Tag.vue";
 import ViolationTable from "./../Reusable/ViolationTable.vue";
 import * as api from "../../services/api.js";
+import { usePrefixes } from '../../composables/usePrefixes.js';
 
-// Store prefixes for URI formatting
-const prefixes = ref({});
-
-// Helper function to format URIs using prefixes
-const formatUri = (uri) => {
-  if (!uri || typeof uri !== "string") return "N/A";
-
-  // Try to match with prefixes
-  let matchedPrefix = null;
-  let matchedNamespace = null;
-
-  for (const [prefix, namespace] of Object.entries(prefixes.value)) {
-    if (uri.startsWith(namespace) && (!matchedNamespace || namespace.length > matchedNamespace.length)) {
-      matchedPrefix = prefix;
-      matchedNamespace = namespace;
-    }
-  }
-
-  if (matchedPrefix) {
-    return `${matchedPrefix}:${uri.slice(matchedNamespace.length)}`;
-  }
-
-  // Fallback: extract local name after # or /
-  const match = uri.match(/[#\/]([^#\/]+)$/);
-  return match ? match[1] : uri;
-};
+// Use prefixes composable for URI formatting
+const { loadPrefixes, formatURI: formatUri } = usePrefixes();
 
 // Helper function to calculate percentage
 const formatPercentage = (part, total) => {
@@ -372,9 +349,8 @@ ${summaries.constraintComponent.value}
 // Load data from API on component mount
 onMounted(async () => {
   try {
-    // First, fetch prefixes from validation details (just get 1 record to get prefixes quickly)
-    const prefixData = await api.getValidationDetailsReport(1, 0);
-    prefixes.value = prefixData["@prefixes"] || {};
+    // Load prefixes (cached after first call)
+    await loadPrefixes();
     await loadSummaries();
 
     // Fetch all statistics in parallel
@@ -458,7 +434,6 @@ onMounted(async () => {
         borderWidth: 1,
       }))
     };
-
     pathHistogramData.value = {
       ...pathDistribution,
       datasets: pathDistribution.datasets.map(dataset => ({
@@ -468,7 +443,6 @@ onMounted(async () => {
         borderWidth: 1,
       }))
     };
-
     focusNodeHistogramData.value = {
       ...focusNodeDistribution,
       datasets: focusNodeDistribution.datasets.map(dataset => ({
@@ -478,7 +452,6 @@ onMounted(async () => {
         borderWidth: 1,
       }))
     };
-
     constraintComponentHistogramData.value = {
       ...constraintDistribution,
       datasets: constraintDistribution.datasets.map(dataset => ({
@@ -488,7 +461,6 @@ onMounted(async () => {
         borderWidth: 1,
       }))
     };
-
   } catch (error) {
     console.error("Error loading homepage data:", error);
     // Set error state in tags

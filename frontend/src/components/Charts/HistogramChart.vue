@@ -58,6 +58,10 @@ const props = defineProps({
     type: String,
     default: 'Y Axis',
   },
+  explanationText: {
+    type: String,
+    default: '',
+  },
   data: {
     type: Object,
     required: true,
@@ -86,7 +90,6 @@ const hasData = computed(() => {
 // Function to create the chart
 const createChart = () => {
   if (!histogramCanvas.value || chartInstance.value) return;
-
   // Apply global defaults for Chart.js using chartTheme
   Chart.defaults.color = chartTheme.defaults.textColor;
   Chart.defaults.borderColor = chartTheme.defaults.gridlineColor;

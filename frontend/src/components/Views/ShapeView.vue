@@ -1,5 +1,20 @@
 <template>
   <div class="shape-view p-4">
+    <!-- Loading State -->
+    <div v-if="loading" class="text-center py-20">
+      <p class="text-gray-600 text-lg">Loading shape details...</p>
+    </div>
+
+    <!-- Error State -->
+    <div v-else-if="error" class="text-center py-20">
+      <p class="text-red-600 text-lg">{{ error }}</p>
+      <button @click="loadShapeData(route.params.shapeId)" class="mt-4 px-6 py-3 bg-blue-500 text-white rounded hover:bg-blue-600">
+        Retry
+      </button>
+    </div>
+
+    <!-- Main Content -->
+    <div v-else>
     <!-- Header Section with Horizontal Bar -->
     <div class="header-section bg-gray-100 p-4 rounded mb-6 shadow flex items-center justify-between">
   <!-- Left: Breadcrumb Button -->
@@ -92,7 +107,8 @@
     </div>
 
     <!-- Violations Table -->
-    <ShapesTable class="bg-white shadow rounded-lg p-6 mt-8" />
+    <ShapesTable :nodeShape="shapeId" class="bg-white shadow rounded-lg p-6 mt-8" />
+    </div>
   </div>
 </template>
 
@@ -140,18 +156,39 @@ import ParetoChart from "./../Charts/ParetoChart.vue";
 import ShapesTable from "./../Reusable/ShapesTable.vue";
 import GaugeChart from "./../Charts/GaugeChart.vue";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
+import {
+  getViolationCountForNodeShape,
+  getViolatedFocusNodesCountForNodeShape,
+  getPropertyPathsCountForNodeShape,
+  getConstraintCountForNodeShape,
+  getViolationsPerConstraintTypeForPropertyShape,
+  getShapeDefinition
+} from '../../services/api.js';
+import { usePrefixes } from '../../composables/usePrefixes.js';
 
 const route = useRoute();
 const router = useRouter();
 
-const shapeName = ref("");
+const shapeId = ref(""); // Store the full URI from route
+const shapeName = ref(""); // Store the formatted display name
 const shapeDefinition = ref("");
-const totalViolations = ref(42);
-const affectedFocusNodes = ref(15);
-const affectedPropertyPaths = ref(8);
-const constraintsTriggered = ref(5);
+const totalViolations = ref(0);
+const affectedFocusNodes = ref(0);
+const loading = ref(false);
+const error = ref(null);
+
+// Use prefixes composable for URI formatting
+const { loadPrefixes, formatURI } = usePrefixes();
+
+const affectedPropertyPaths = ref(0);
+const constraintsTriggered = ref(0);
 const healthScore = ref(70);
 const showDefinition = ref(false);
+
+// Refs for "most violated" metrics
+const mostViolatedFocusNode = ref("");
+const mostViolatedPropertyPath = ref("");
+const mostTriggeredConstraint = ref("");
 
 const scatterPlotData = ref({
   datasets: [
@@ -183,171 +220,164 @@ const heatmapDatas = ref({
 });
 
 const heatmapData26 = ref([
-   {
-      "PropertyShape":"shs:costStadiumShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:ClassConstraintComponent",
-            "Violations":18
-         }
-      ]
-   },
-   {
-      "PropertyShape":"shs:homepageStadiumShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:MinCountConstraintComponent",
-            "Violations":93
-         }
-      ]
-   },
-   {
-      "PropertyShape":"shs:instanceTypeStadiumShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:InConstraintComponent",
-            "Violations":2214
-         }
-      ]
-   },
-   {
-      "PropertyShape":"shs:labelStadiumShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:MinCountConstraintComponent",
-            "Violations":27
-         }
-      ]
-   },
-   {
-      "PropertyShape":"shs:sameAsStadiumShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:MinCountConstraintComponent",
-            "Violations":27
-         }
-      ]
-   }
+
   ]);
 
-
-  const heatmapData3 = ref([
-   {
-      "PropertyShape":"shs:costShipShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:ClassConstraintComponent",
-            "Violations":3
-         }
-      ]
-   },
-   {
-      "PropertyShape":"shs:instanceTypeShipShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:InConstraintComponent",
-            "Violations":1394
-         }
-      ]
-   },
-   {
-      "PropertyShape":"shs:lengthShipShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:DatatypeConstraintComponent",
-            "Violations":14
-         }
-      ]
-   },
-   {
-      "PropertyShape":"shs:sameAsShipShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:MinCountConstraintComponent",
-            "Violations":11
-         }
-      ]
-   },
-   {
-      "PropertyShape":"shs:timeZoneShipShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:MinCountConstraintComponent",
-            "Violations":75
-         }
-      ]
-   },
-   {
-      "PropertyShape":"shs:topSpeedShipShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:DatatypeConstraintComponent",
-            "Violations":9
-         }
-      ]
-   },
-   {
-      "PropertyShape":"shs:heightShipShapeProperty",
-      "Constraints":[
-         {
-            "Constraint":"sh:DatatypeConstraintComponent",
-            "Violations":1
-         }
-      ]
-   }
-])
 
 const paretoData = ref({
   labels: ["Property Shape 1", "Property Shape 2", "Property Shape 3"],
   values: [20, 30, 50],
 });
 
-const metrics = ref([
-  { id: "violations", label: "Total Violations", value: totalViolations, titleMaxViolated: "", maxViolated: ""},
-  { id: "focus-nodes", label: "Focus Nodes", value: affectedFocusNodes, titleMaxViolated: "Most Focus Node", maxViolated: "db:PGA_Tour"},
-  { id: "property-paths", label: "Property Paths", value: affectedPropertyPaths, titleMaxViolated: "Most Property Path", maxViolated: " rdf:type"},
-  { id: "constraints", label: "Constraints Triggered", value: constraintsTriggered, titleMaxViolated: "Most triggered Constrain", maxViolated: "sh:in"},
+const metrics = computed(() => [
+  { id: "violations", label: "Total Violations", value: totalViolations.value, titleMaxViolated: "", maxViolated: ""},
+  { id: "focus-nodes", label: "Focus Nodes", value: affectedFocusNodes.value, titleMaxViolated: "Most Violated Focus Node", maxViolated: mostViolatedFocusNode.value},
+  { id: "property-paths", label: "Property Paths", value: affectedPropertyPaths.value, titleMaxViolated: "Most Violated Property Path", maxViolated: mostViolatedPropertyPath.value},
+  { id: "constraints", label: "Constraints Triggered", value: constraintsTriggered.value, titleMaxViolated: "Most Triggered Constraint", maxViolated: mostTriggeredConstraint.value},
 ]);
 
 const toggleDefinition = () => {
   showDefinition.value = !showDefinition.value;
 };
 
+// Load shape data from API
+const loadShapeData = async (shapeId) => {
+  loading.value = true;
+  error.value = null;
+
+  try {
+    // Load prefixes (cached after first call)
+    await loadPrefixes();
+
+    // Fetch all data in parallel
+    const [
+      violationsData,
+      focusNodesData,
+      propertyPathsData,
+      constraintsData,
+      violationsPerConstraintData,
+      definitionData
+    ] = await Promise.all([
+      getViolationCountForNodeShape(shapeId),
+      getViolatedFocusNodesCountForNodeShape(shapeId),
+      getPropertyPathsCountForNodeShape(shapeId),
+      getConstraintCountForNodeShape(shapeId),
+      getViolationsPerConstraintTypeForPropertyShape(shapeId),
+      getShapeDefinition(shapeId).catch(() => null)
+    ]);
+
+    // Update refs with API data - format the shapeName with prefix
+    shapeName.value = formatURI(shapeId);
+    totalViolations.value = violationsData.violationCount || 0;
+    affectedFocusNodes.value = focusNodesData.violatedFocusNodesCount || 0;
+    affectedPropertyPaths.value = propertyPathsData.propertyPathCount || 0;
+    constraintsTriggered.value = constraintsData.constraintCount || 0;
+    
+    // Process definition data - backend returns shape data keyed by shape URI
+    if (definitionData && definitionData[shapeId]) {
+      const shapeData = definitionData[shapeId];
+      shapeDefinition.value = JSON.stringify(shapeData, null, 2);
+    } else {
+      shapeDefinition.value = "Definition not available";
+    }
+
+    // Update heatmap data with formatted URIs and calculate "most" metrics
+    if (violationsPerConstraintData.propertyShapes) {
+      heatmapData26.value = violationsPerConstraintData.propertyShapes.map(ps => ({
+        PropertyShape: formatURI(ps.PropertyShape),
+        Constraints: ps.Constraints.map(c => ({
+          Constraint: formatURI(c.Constraint),
+          Violations: c.Violations
+        }))
+      }));
+
+      // Calculate most violated property path (property shape with most violations)
+      let maxPropertyViolations = 0;
+      let maxPropertyShape = "";
+      violationsPerConstraintData.propertyShapes.forEach(ps => {
+        const totalViolations = ps.Constraints.reduce((sum, c) => sum + c.Violations, 0);
+        if (totalViolations > maxPropertyViolations) {
+          maxPropertyViolations = totalViolations;
+          maxPropertyShape = ps.PropertyShape;
+        }
+      });
+      mostViolatedPropertyPath.value = maxPropertyShape ? formatURI(maxPropertyShape) : "None";
+
+      // Calculate most triggered constraint (constraint with most violations across all property shapes)
+      const constraintViolations = {};
+      violationsPerConstraintData.propertyShapes.forEach(ps => {
+        ps.Constraints.forEach(c => {
+          constraintViolations[c.Constraint] = (constraintViolations[c.Constraint] || 0) + c.Violations;
+        });
+      });
+      
+      let maxConstraintViolations = 0;
+      let maxConstraint = "";
+      Object.entries(constraintViolations).forEach(([constraint, violations]) => {
+        if (violations > maxConstraintViolations) {
+          maxConstraintViolations = violations;
+          maxConstraint = constraint;
+        }
+      });
+      mostTriggeredConstraint.value = maxConstraint ? formatURI(maxConstraint) : "None";
+
+      // For most violated focus node, set to N/A (requires separate backend endpoint)
+      mostViolatedFocusNode.value = "N/A";
+
+      // Calculate Pareto data (top 3 property shapes by violation count)
+      const propertyShapeViolations = violationsPerConstraintData.propertyShapes.map(ps => ({
+        name: formatURI(ps.PropertyShape),
+        totalViolations: ps.Constraints.reduce((sum, c) => sum + c.Violations, 0)
+      }));
+
+      // Sort by violations (descending) and take top 3
+      const top3 = propertyShapeViolations
+        .sort((a, b) => b.totalViolations - a.totalViolations)
+        .slice(0, 3);
+
+      // Update paretoData
+      paretoData.value = {
+        labels: top3.map(ps => ps.name),
+        values: top3.map(ps => ps.totalViolations)
+      };
+    } else {
+      // No data available
+      mostViolatedPropertyPath.value = "None";
+      mostTriggeredConstraint.value = "None";
+      mostViolatedFocusNode.value = "N/A";
+      
+      // Fallback if no data
+      paretoData.value = {
+        labels: [],
+        values: []
+      };
+    }
+
+    console.log('Shape data loaded successfully:', {
+      shapeName: shapeName.value,
+      violations: totalViolations.value,
+      focusNodes: affectedFocusNodes.value
+    });
+
+  } catch (err) {
+    console.error('Error loading shape data:', err);
+    error.value = 'Failed to load shape data. Please try again.';
+  } finally {
+    loading.value = false;
+  }
+};
+
 onMounted(() => {
-  const shapeId = route.params.shapeId;
-
-  console.log("Retrieved shapeId:", shapeId); // Debugging Log
-  const shapes = {
-    26: {
-      name: 'shs:StadiumShape',
-      definition: `@prefix sh: <sh:> . 
-                    @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-                    @prefix foaf: <http://xmlns.com/foaf/0.1/> .
-                    @prefix ex: <http://example.org/> .
-
-                    ex:AgeShape
-                        a sh:NodeShape ;
-                        sh:targetClass foaf:Person ;  
-                        sh:property [
-                            sh:path foaf:age ;        
-                            sh:datatype xsd:integer ; 
-                            sh:minInclusive 0 ;       
-                            sh:message "Age must be a non-negative integer." ;
-                        ] .`,
-      violations: 42,
-    },
-    2: {
-      name: "AddressShape",
-      definition: "PREFIX ex: <http://example.org/> ...",
-      violations: 18,
-    },
-  };
-  const shape = shapes[shapeId];
-
-  if (shape) {
-    shapeName.value = shape.name;
-    shapeDefinition.value = shape.definition;
-    totalViolations.value = shape.violations;
+  // Decode the shapeId from URL encoding
+  const encodedShapeId = route.params.shapeId;
+  const decodedShapeId = decodeURIComponent(encodedShapeId);
+  console.log("Retrieved shapeId:", decodedShapeId);
+  
+  if (decodedShapeId) {
+    shapeId.value = decodedShapeId; // Store in ref for template access
+    loadShapeData(decodedShapeId);
+  } else {
+    error.value = "No shape ID provided";
   }
 });
 
