@@ -41,7 +41,7 @@ Home View Summaries:
 - summarize_path_with_templates: Summarize violations per path histogram
 - summarize_focusnode_with_templates: Summarize violations per focus node histogram
 - summarize_constraint_with_templates: Summarize violations per constraint component histogram
-- home_paths_top: Summarize top violated paths
+# (removed) home_paths_top: Top violated paths summary (endpoint removed)
 
 Shapes View Summaries:
 - summarize_shape_constraint_distribution_templates: Analyze violation-to-constraint ratios
@@ -1821,106 +1821,8 @@ def home_constraint_hist(
 
 
 # ============================================================
-# HOME – Path Toplist
+# HOME – Path Toplist (removed)
 # ============================================================
-
-def home_paths_top(
-    homepage_service,
-    report_uri: str,
-    level: str,
-    top_k: int = 3,
-    use_llm: bool = False,
-    include_category: bool = True,
-    shapes_graph_uri: Optional[str] = None,
-    llm_api_key: Optional[str] = None,
-    llm_model: str = "gpt-4o",
-) -> str:
-    """
-    Top violated paths.
-    
-    Args:
-        use_llm: If True, use LLM to determine dominant category (adds ~1-3s latency).
-                 If False (default), use fast keyword-based classification (no overhead).
-        include_category: If True, include category/domain information in summary. If False, omit it.
-        shapes_graph_uri: URI of shapes graph (for LLM context)
-        llm_api_key: OpenAI API key (if None, uses environment variable)
-        llm_model: Model to use (default: gpt-4o)
-    """
-    try:
-        path_data = homepage_service.get_violations_per_path(validation_report_uri=report_uri)
-    except Exception:
-        if level == "high":
-            return "This view lists the data fields that are responsible for most of the violations."
-        return "This top list shows the sh:resultPath values with the highest violation counts."
-
-    if not path_data:
-        if level == "high":
-            return "This view lists the data fields that are responsible for most of the violations. No paths with violations found."
-        return "This top list shows the sh:resultPath values with the highest violation counts. No data available."
-
-    # Sort by violations descending
-    sorted_paths = sorted(
-        path_data,
-        key=lambda x: x.get("NumViolations", 0),
-        reverse=True
-    )
-
-    total_violations = sum(p.get("NumViolations", 0) for p in path_data)
-    
-    if total_violations == 0:
-        if level == "high":
-            return "This view lists the data fields that are responsible for most of the violations. No violations found."
-        return "This top list shows the sh:resultPath values with the highest violation counts. No violations detected."
-
-    top_paths = sorted_paths[:top_k]
-    top_violations = sum(p.get("NumViolations", 0) for p in top_paths)
-    top_perc = _percentage(top_violations, total_violations, level)
-    top_perc_formatted = _format_percentage(top_perc, level)
-    
-    top_labels = [clean_label(p.get("PathName", "")) for p in top_paths]
-    
-    # Get all path labels for category detection
-    all_path_labels = [item.get("PathName", "") for item in path_data] if path_data else []
-    
-    # Determine category only if include_category is True
-    use_semantic = False
-    category_description = ""
-    
-    if include_category and all_path_labels:
-        if use_llm:
-            dom_category = dominant_category_llm(
-                labels=all_path_labels,
-                shapes_graph_uri=shapes_graph_uri,
-                validation_report_uri=report_uri,
-                api_key=llm_api_key,
-                model=llm_model,
-            )
-            if dom_category:
-                category_description = f" These paths primarily relate to {dom_category}."
-                use_semantic = True
-
-    if level == "high":
-        intro = (
-            f"This view lists the data fields that are responsible for most of the violations. "
-            f"The top {top_k} paths ({', '.join(top_labels)}) account for {top_perc_formatted}% of all {total_violations} violations."
-        )
-        if use_semantic:
-            intro += category_description
-        if top_perc >= 80:
-            intro += " This follows the Pareto principle, where a small number of fields cause most issues."
-    else:
-        intro = (
-            f"This top list shows the sh:resultPath values with the highest violation counts. "
-            f"Total violations: {total_violations}. Top {top_k} paths account for {top_perc_formatted}%:"
-        )
-        for i, path in enumerate(top_paths, 1):
-            path_label = clean_label(path.get("PathName", ""))
-            violations = path.get("NumViolations", 0)
-            perc = _percentage(violations, total_violations, level)
-            intro += f" {i}. {path_label}: {violations} violations ({_format_percentage(perc, level)}%)."
-
-    return intro
-
 
 # ============================================================
 # SHAPES VIEW – Distribution per constraint inside a NodeShape

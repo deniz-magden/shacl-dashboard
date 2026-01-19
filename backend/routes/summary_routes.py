@@ -9,7 +9,6 @@ from functions.summary_service import (
     home_path_hist,
     home_focusnode_hist,
     home_constraint_hist,
-    home_paths_top,
     shapes_distribution_per_constraint,
     shapes_correlation_constraints_vs_violations,
     shapes_diversity_intensity,
@@ -151,38 +150,6 @@ def summarize_home_constraint():
         homepage_service, 
         report_uri, 
         level,
-        use_llm=use_llm,
-        include_category=include_category,
-        shapes_graph_uri=shapes_uri,
-        llm_api_key=llm_api_key,
-        llm_model=llm_model,
-    )
-    return jsonify({
-        "level": level, 
-        "summary": text,
-        "use_llm": use_llm,
-        "include_category": include_category
-    })
-
-
-@summary_bp.route("/summaries/home/path/top", methods=['GET'])
-def summarize_home_path_top():
-    level = _level_param()
-    use_llm = _use_llm_param()
-    include_category = _include_category_param()
-    shapes_uri = request.args.get("shapes_graph_uri", default=None)
-    report_uri = request.args.get("validation_report_uri", default = "http://ex.org/ValidationReport")
-    top_k = int(request.args.get("top_k", 3))
-    
-    # Optional LLM configuration
-    llm_api_key = request.args.get("llm_api_key", default=None)
-    llm_model = request.args.get("llm_model", default="gpt-4o")
-    
-    text = home_paths_top(
-        homepage_service, 
-        report_uri, 
-        level, 
-        top_k,
         use_llm=use_llm,
         include_category=include_category,
         shapes_graph_uri=shapes_uri,
