@@ -609,6 +609,53 @@ def _format_percentage(perc: float, level: str = "high") -> str:
     return f"{perc:.1f}"  # Format with 1 decimal for low level
 
 
+def _top_items(labels: List[str], counts: List[int], top_k: int = 3) -> List[Tuple[str, int]]:
+    """Return top items by count with cleaned labels."""
+    if not labels or not counts:
+        return []
+    size = min(len(labels), len(counts))
+    items = [(clean_label(labels[i]), int(counts[i])) for i in range(size)]
+    items.sort(key=lambda item: (-item[1], item[0]))
+    return items[:top_k]
+
+
+def _detail_insights(
+    counts: List[int],
+    labels: List[str],
+    singular_label: str,
+    plural_label: str,
+) -> str:
+    """Extra insights for low-level summaries."""
+    if not counts:
+        return ""
+    median_val = int(np.percentile(counts, 50))
+    p90_val = int(np.percentile(counts, 90))
+    stats_sentence = (
+        f"Median violations per {singular_label}: {median_val}; "
+        f"90th percentile: {p90_val}."
+    )
+    top_items = _top_items(labels, counts, top_k=3)
+    if top_items:
+        top_list = ", ".join(
+            f"{format_name_for_text(name)} ({count})" for name, count in top_items
+        )
+        top_sentence = f"Top {len(top_items)} {plural_label} by violations: {top_list}."
+    else:
+        top_sentence = ""
+    return " ".join([stats_sentence, top_sentence]).strip()
+
+
+def _join_nonempty(*parts: str) -> str:
+    return " ".join([part for part in parts if part])
+
+
+def _percentile_value(values: List[float], percentile: float) -> float:
+    """Return percentile value or 0.0 for empty lists."""
+    if not values:
+        return 0.0
+    return float(np.percentile(values, percentile))
+
+
 def adaptive_thresholds(data_size: int) -> Tuple[float, float]:
     """
     Calculate adaptive thresholds based on data size.
@@ -740,6 +787,9 @@ def summarize_nodeshape_with_templates(
     )
     counts = [int(item["NumViolations"]) for item in shape_data] if shape_data else []
     labels_ns = [item["NodeShapeName"] for item in shape_data] if shape_data else []
+    detail_insights = ""
+    if level != "high":
+        detail_insights = _detail_insights(counts, labels_ns, "node shape", "node shapes")
 
     total_shapes = len(counts)
     violated_counts = [c for c in counts if c > 0]
@@ -811,13 +861,10 @@ def summarize_nodeshape_with_templates(
             )
     
     if total_shapes == 0:
-        return intro + " No node shapes are present in the shapes graph."
+        return _join_nonempty(intro, "No node shapes are present in the shapes graph.", detail_insights)
 
     if violated_shapes == 0:
-        return intro + " No node shapes are violated."
-    else:
-        perc = _percentage(violated_shapes, total_shapes, level)
-        perc_sentence = f"{_format_percentage(perc, level)}% of node shapes are violated."
+        return _join_nonempty(intro, "No node shapes are violated.", detail_insights)
 
     dist = homepage_service.distribution_of_violations_per_shape(
         shapes_graph_uri=shapes_graph_uri,
@@ -839,8 +886,8 @@ def summarize_nodeshape_with_templates(
                     f"Violation counts range from {min_v} to {max_v} violations. "
                     "The counts are relatively consistent across shapes, suggesting similar data quality levels."
                 )
-            return " ".join([intro, perc_sentence, spread_sentence])
-        return " ".join([intro, perc_sentence])
+            return _join_nonempty(intro, spread_sentence, detail_insights)
+        return _join_nonempty(intro, detail_insights)
 
     total_bins = sum(freqs) or 1
     max_freq = max(freqs)
@@ -900,6 +947,9 @@ def summarize_nodeshape_with_templates(
     outlier_multiplier, cluster_threshold = adaptive_thresholds(total_shapes)
     outlier_threshold = dom_high * outlier_multiplier if dom_high > 0 else 0
     has_outliers = vmax > outlier_threshold and outlier_threshold > 0
+    no_dominant_sentence = ""
+    if counts and not (share_max > cluster_threshold and vmax >= dom_high):
+        no_dominant_sentence = "No single node shape dominates the overall violations."
 
     if dom_share < cluster_threshold:
         if _is_wide_spread(violated_counts):
@@ -914,7 +964,7 @@ def summarize_nodeshape_with_templates(
                 "The counts are relatively consistent across shapes, suggesting similar data quality levels, "
                 "though the distribution is not concentrated in a single range."
             )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, no_dominant_sentence, detail_insights)
 
     # Use adaptive threshold for share_max check
     if share_max > cluster_threshold and vmax >= dom_high:
@@ -928,7 +978,7 @@ def summarize_nodeshape_with_templates(
             f"While most of them fall into {range_text} violations, "
             f"the shape{'s' if max_indices_count > 1 else ''} {formatted_name} {'are' if max_indices_count > 1 else 'is'} responsible for about {_format_percentage(perc_out, level)}% of all issues and should be reviewed first."
         )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, no_dominant_sentence, detail_insights)
 
     if not has_outliers:
         if len(dom_ranges) == 1:
@@ -940,7 +990,7 @@ def summarize_nodeshape_with_templates(
             "meaning that many data entities of this type likely share similar rule issues. "
             "This indicates that most of the problems are concentrated and probably relate to a recurring pattern in these shapes."
         )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, no_dominant_sentence, detail_insights)
 
     if len(dom_ranges) == 1:
         range_text = f"the range of {dom_range_str}"
@@ -951,7 +1001,7 @@ def summarize_nodeshape_with_templates(
         f"a few shapes show unusually high counts with up to {vmax} violations. "
         "These outliers likely point to specific modeling or data-entry issues related to those shapes and should be reviewed first."
     )
-    return " ".join([intro, perc_sentence, body])
+    return _join_nonempty(intro, body, no_dominant_sentence, detail_insights)
 
 
 def home_nodeshape_hist(
@@ -1006,6 +1056,9 @@ def summarize_path_with_templates(
     path_data = homepage_service.get_violations_per_path(validation_report_uri=report_uri)
     counts = [int(item["NumViolations"]) for item in path_data] if path_data else []
     labels_path = [item["PathName"] for item in path_data] if path_data else []
+    detail_insights = ""
+    if level != "high":
+        detail_insights = _detail_insights(counts, labels_path, "path", "paths")
 
     # Get total number of paths from shapes graph (not just violated ones)
     try:
@@ -1054,10 +1107,10 @@ def summarize_path_with_templates(
             intro += category_description
 
     if total_paths == 0:
-        return intro + " No paths are present in the validation report."
+        return _join_nonempty(intro, "No paths are present in the validation report.", detail_insights)
 
     if violated_paths == 0:
-        return intro + " No paths are violated."
+        return _join_nonempty(intro, "No paths are violated.", detail_insights)
     else:
         perc = _percentage(violated_paths, total_paths, level)
         perc_sentence = f"{_format_percentage(perc, level)}% of paths are violated."
@@ -1080,8 +1133,8 @@ def summarize_path_with_templates(
                     f"Violation counts range from {min_v} to {max_v} violations. "
                     "The counts are relatively consistent across paths, suggesting similar data quality levels."
                 )
-            return " ".join([intro, perc_sentence, spread_sentence])
-        return " ".join([intro, perc_sentence])
+            return _join_nonempty(intro, perc_sentence, spread_sentence, detail_insights)
+        return _join_nonempty(intro, perc_sentence, detail_insights)
 
     total_bins = sum(freqs) or 1
     max_freq = max(freqs)
@@ -1152,7 +1205,7 @@ def summarize_path_with_templates(
                 "The counts are relatively consistent across paths, suggesting similar data quality levels, "
                 "though the distribution is not concentrated in a single range."
             )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
 
     if share_max > cluster_threshold and vmax >= dom_high:
         perc_out = _percentage(max_val, sum(counts) or 1, level)
@@ -1165,7 +1218,7 @@ def summarize_path_with_templates(
             f"While most of them fall into {range_text} violations, "
             f"the path{'s' if max_indices_count > 1 else ''} {formatted_name} {'are' if max_indices_count > 1 else 'is'} responsible for about {_format_percentage(perc_out, level)}% of all issues and should be reviewed first."
         )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
 
     if not has_outliers:
         if len(dom_ranges) == 1:
@@ -1176,7 +1229,7 @@ def summarize_path_with_templates(
             f"The violations are distributed across multiple paths. The most common values lie in {range_text}. "
             "This indicates that most of the problems are concentrated and probably relate to a recurring pattern in some node shapes regarding these paths."
         )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
 
     if len(dom_ranges) == 1:
         range_text = f"the range of {dom_range_str}"
@@ -1187,7 +1240,7 @@ def summarize_path_with_templates(
         f"a few paths show unusually high counts with up to {vmax} violations. "
         "This indicates widespread nonconformity across the data to those property constraints, so these paths should be reviewed first."
     )
-    return " ".join([intro, perc_sentence, body])
+    return _join_nonempty(intro, perc_sentence, body, detail_insights)
 
 
 def home_path_hist(
@@ -1242,6 +1295,9 @@ def summarize_focusnode_with_templates(
     focus_data = homepage_service.get_violations_per_focus_node(validation_report_uri=report_uri)
     counts = [int(item["NumViolations"]) for item in focus_data] if focus_data else []
     labels_fn = [item["FocusNodeName"] for item in focus_data] if focus_data else []
+    detail_insights = ""
+    if level != "high":
+        detail_insights = _detail_insights(counts, labels_fn, "focus node", "focus nodes")
 
     total_nodes = len(counts)
     violated_counts = [c for c in counts if c > 0]
@@ -1317,10 +1373,10 @@ def summarize_focusnode_with_templates(
             )
 
     if total_nodes == 0:
-        return intro + " No focus nodes are present in the validation report."
+        return _join_nonempty(intro, "No focus nodes are present in the validation report.", detail_insights)
 
     if violated_nodes == 0:
-        return intro + " No focus nodes are violated."
+        return _join_nonempty(intro, "No focus nodes are violated.", detail_insights)
 
     dist = homepage_service.distribution_of_violations_per_focus_node(validation_report_uri=report_uri)
     labels = dist.get("labels", [])
@@ -1340,8 +1396,8 @@ def summarize_focusnode_with_templates(
                     f"Violation counts range from {min_v} to {max_v}. "
                     "The counts are relatively consistent across focus nodes, suggesting similar data quality levels."
                 )
-            return " ".join([intro, spread_sentence])
-        return intro
+            return _join_nonempty(intro, spread_sentence, detail_insights)
+        return _join_nonempty(intro, detail_insights)
 
     total_bins = sum(freqs) or 1
     max_freq = max(freqs)
@@ -1412,7 +1468,7 @@ def summarize_focusnode_with_templates(
                 "The counts are relatively consistent across focus nodes, suggesting similar data quality levels, "
                 "though the distribution is not concentrated in a single range."
             )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
 
     if share_max > cluster_threshold and vmax >= dom_high:
         perc_out = _percentage(max_val, sum(counts) or 1, level)
@@ -1425,7 +1481,7 @@ def summarize_focusnode_with_templates(
             f"Although most of them fall into {range_text} violations, "
             f"the node{'s' if max_indices_count > 1 else ''} {formatted_name} {'are' if max_indices_count > 1 else 'is'} responsible for most issues out of all nodes and should be reviewed first."
         )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
 
     if not has_outliers:
         if len(dom_ranges) == 1:
@@ -1437,7 +1493,7 @@ def summarize_focusnode_with_templates(
             "meaning that the majority of individual records have a similar number of rule issues. "
             "This suggests that the problems are systematic and likely affect many entries in the same way."
         )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
 
     if len(dom_ranges) == 1:
         range_text = f"a range of {dom_range_str}"
@@ -1448,7 +1504,7 @@ def summarize_focusnode_with_templates(
         f"a few nodes show unusually high counts of up to {vmax} violations. "
         "These outliers likely need targeted review, as they contain most of the problematic data."
     )
-    return " ".join([intro, body])
+    return _join_nonempty(intro, body, detail_insights)
 
 
 def home_focusnode_hist(
@@ -1533,6 +1589,11 @@ def summarize_constraint_with_templates(
 
     counts = [int(item["NumViolations"]) for item in constraint_data] if constraint_data else []
     labels_cc = [item["ConstraintComponentName"] for item in constraint_data] if constraint_data else []
+    detail_insights = ""
+    if level != "high":
+        detail_insights = _detail_insights(
+            counts, labels_cc, "constraint component", "constraint components"
+        )
 
     # Get total number of constraint components from shapes graph (not just violated ones)
     try:
@@ -1589,10 +1650,18 @@ def summarize_constraint_with_templates(
             intro += category_description
 
     if total_constraints == 0:
-        return intro + " No constraint components are present in the validation report."
+        return _join_nonempty(
+            intro,
+            "No constraint components are present in the validation report.",
+            detail_insights,
+        )
 
     if violated_constraints == 0:
-        return intro + " No constraint components are violated."
+        return _join_nonempty(
+            intro,
+            "No constraint components are violated.",
+            detail_insights,
+        )
     else:
         perc = _percentage(violated_constraints, total_constraints, level)
         perc_sentence = f"{_format_percentage(perc, level)}% of constraint components are violated."
@@ -1617,8 +1686,8 @@ def summarize_constraint_with_templates(
                     f"Violation counts range from {min_v} to {max_v}. "
                     "The counts are relatively consistent across constraint components, suggesting similar violation rates."
                 )
-            return " ".join([intro, perc_sentence, spread_sentence])
-        return " ".join([intro, perc_sentence])
+            return _join_nonempty(intro, perc_sentence, spread_sentence, detail_insights)
+        return _join_nonempty(intro, perc_sentence, detail_insights)
 
     total_bins = sum(freqs) or 1
     max_freq = max(freqs)
@@ -1689,7 +1758,7 @@ def summarize_constraint_with_templates(
                 "The counts are relatively consistent across constraint components, suggesting similar violation rates, "
                 "though the distribution is not concentrated in a single range."
             )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
 
     if share_max > cluster_threshold and vmax >= dom_high:
         perc_out = _percentage(max_val, sum(counts) or 1, level)
@@ -1704,7 +1773,7 @@ def summarize_constraint_with_templates(
             "meaning that this requirement is frequently not met. "
             "This indicates a systematic issue, such as missing values or incorrect formats."
         )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
 
     if not has_outliers:
         if len(dom_ranges) == 1:
@@ -1715,7 +1784,7 @@ def summarize_constraint_with_templates(
             f"The different rule types are mostly violated at similar levels in {range_text}. "
             "No single rule stands out, which suggests that the data issues are broad and not limited to any particular rule."
         )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
 
     if len(dom_ranges) == 1:
         range_text = f"range of {dom_range_str}"
@@ -1726,7 +1795,7 @@ def summarize_constraint_with_templates(
         f"some are violated up to {vmax} times. "
         "This indicates a systematic issue, such as missing values and incorrect formats. These outliers should be reviewed first."
     )
-    return " ".join([intro, perc_sentence, body])
+    return _join_nonempty(intro, perc_sentence, body, detail_insights)
 
 
 def home_constraint_hist(
@@ -2019,6 +2088,20 @@ def summarize_shape_constraint_distribution_templates(
     # Calculate spread
     active_bins = len(non_zero_freqs)
     
+    detail_insights = ""
+    if level != "high":
+        active_bins = len([freq for freq in freqs if freq > 0])
+        high_bins = freqs[-2:] if len(freqs) >= 2 else freqs
+        high_share = sum(high_bins) / total_shapes if total_shapes > 0 else 0.0
+        dom_share_pct = _format_percentage(
+            _percentage(int(max_freq), total_shapes, level), level
+        )
+        detail_insights = (
+            f"Active ratio bins: {active_bins} of {num_bins}. "
+            f"Dominant bin share: {dom_share_pct}%. "
+            f"Highest-ratio bins cover {_format_percentage(_percentage(int(sum(high_bins)), total_shapes, level), level)}% of shapes."
+        )
+
     if dom_share < 0.35:
         if len(dom_ranges) == 1:
             range_text = f"the most common range is {dom_range_str}"
@@ -2030,7 +2113,7 @@ def summarize_shape_constraint_distribution_templates(
             "the data is spread across many different ratio levels. "
             "This suggests varying levels of constraint effectiveness across different node shapes."
         )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
     
     if dom_share >= 0.7:
         if len(dom_ranges) == 1:
@@ -2043,7 +2126,7 @@ def summarize_shape_constraint_distribution_templates(
             "This indicates a consistent pattern where most shapes have similar violation-to-constraint ratios, "
             "suggesting uniform constraint effectiveness across the shapes graph."
         )
-        return " ".join([intro, body])
+        return _join_nonempty(intro, body, detail_insights)
     
     # Moderate concentration
     if len(dom_ranges) == 1:
@@ -2056,7 +2139,7 @@ def summarize_shape_constraint_distribution_templates(
         "While there is some concentration, the distribution also shows variation, "
         "indicating that some shapes have better constraint compliance than others."
     )
-    return " ".join([intro, body])
+    return _join_nonempty(intro, body, detail_insights)
 
 
 def shapes_distribution_per_constraint(
@@ -2206,6 +2289,18 @@ def summarize_shapes_correlation_templates(
     total_shapes = len(correlation_data)
     avg_constraints = np.mean(constraints) if constraints else 0
     avg_ratio = np.mean(ratios) if ratios else 0
+    detail_insights = ""
+    if level != "high":
+        med_constraints = _percentile_value([float(c) for c in constraints], 50)
+        p90_constraints = _percentile_value([float(c) for c in constraints], 90)
+        med_ratio = _percentile_value(ratios, 50)
+        p90_ratio = _percentile_value(ratios, 90)
+        detail_insights = (
+            f"Median constraints per shape: {med_constraints:.1f}; "
+            f"90th percentile: {p90_constraints:.1f}. "
+            f"Median violations per constraint: {med_ratio:.2f}; "
+            f"90th percentile: {p90_ratio:.2f}."
+        )
     
     # Calculate correlation coefficient
     if len(constraints) > 1 and np.std(constraints) > 0 and np.std(ratios) > 0:
@@ -2316,7 +2411,7 @@ def summarize_shapes_correlation_templates(
             "suggesting effective constraint design despite complexity."
         )
     
-    return " ".join([intro, body])
+    return _join_nonempty(intro, body, detail_insights)
 
 
 def shapes_correlation_constraints_vs_violations(
@@ -2471,6 +2566,17 @@ def summarize_shapes_diversity_intensity_templates(
     avg_ratio = np.mean(ratios) if ratios else 0
     max_entropy = max(entropies) if entropies else 0
     min_entropy = min(entropies) if entropies else 0
+    detail_insights = ""
+    if level != "high":
+        median_entropy = _percentile_value(entropies, 50)
+        p90_entropy = _percentile_value(entropies, 90)
+        median_ratio = _percentile_value(ratios, 50)
+        p90_ratio = _percentile_value(ratios, 90)
+        detail_insights = (
+            f"Median entropy: {median_entropy:.2f}; 90th percentile: {p90_entropy:.2f}. "
+            f"Median violations per constraint: {median_ratio:.2f}; "
+            f"90th percentile: {p90_ratio:.2f}."
+        )
     
     # Calculate correlation
     if len(entropies) > 1 and np.std(entropies) > 0 and np.std(ratios) > 0:
@@ -2629,7 +2735,7 @@ def summarize_shapes_diversity_intensity_templates(
             )
         body += entropy_insight
     
-    return " ".join([intro, body])
+    return _join_nonempty(intro, body, detail_insights)
 
 
 def shapes_diversity_intensity(
