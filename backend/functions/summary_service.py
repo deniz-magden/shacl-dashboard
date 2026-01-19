@@ -2047,6 +2047,25 @@ def summarize_shape_constraint_distribution_templates(
     total_shapes = sum(freqs)
     if total_shapes == 0:
         return intro + " No node shapes found in the distribution."
+
+    # Detect zero-violation shapes to avoid masking by wide first bin
+    zero_note = ""
+    try:
+        from functions import homepage_service
+
+        total_node_shapes = homepage_service.get_number_of_node_shapes(SHAPES_GRAPH_URI)
+        shapes_with_violations = homepage_service.get_number_of_node_shapes_with_violations(
+            SHAPES_GRAPH_URI, report_uri
+        )
+        zero_count = max(total_node_shapes - shapes_with_violations, 0)
+        if zero_count > 0:
+            zero_pct = _format_percentage(_percentage(zero_count, total_shapes, level), level)
+            zero_note = (
+                f"Note: {zero_count} node shapes ({zero_pct}%) have zero violations, "
+                "so the lowest bin mixes zero-violation shapes with low-but-nonzero ratios."
+            )
+    except Exception:
+        zero_note = ""
     
     num_bins = len(freqs)  # Should always be 10 (or num_bins from distribution function)
     max_freq = max(freqs)
@@ -2112,7 +2131,7 @@ def summarize_shape_constraint_distribution_templates(
             "the data is spread across many different ratio levels. "
             "This suggests varying levels of constraint effectiveness across different node shapes."
         )
-        return _join_nonempty(intro, body, detail_insights)
+        return _join_nonempty(intro, zero_note, body, detail_insights)
     
     if dom_share >= 0.7:
         if len(dom_ranges) == 1:
@@ -2125,7 +2144,7 @@ def summarize_shape_constraint_distribution_templates(
             "This indicates a consistent pattern where most shapes have similar violation-to-constraint ratios, "
             "suggesting uniform constraint effectiveness across the shapes graph."
         )
-        return _join_nonempty(intro, body, detail_insights)
+        return _join_nonempty(intro, zero_note, body, detail_insights)
     
     # Moderate concentration
     if len(dom_ranges) == 1:
@@ -2138,7 +2157,7 @@ def summarize_shape_constraint_distribution_templates(
         "While there is some concentration, the distribution also shows variation, "
         "indicating that some shapes have better constraint compliance than others."
     )
-    return _join_nonempty(intro, body, detail_insights)
+    return _join_nonempty(intro, zero_note, body, detail_insights)
 
 
 def shapes_distribution_per_constraint(
