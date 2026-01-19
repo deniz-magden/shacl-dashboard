@@ -2098,7 +2098,6 @@ def summarize_shape_constraint_distribution_templates(
         )
         detail_insights = (
             f"Active ratio bins: {active_bins} of {num_bins}. "
-            f"Dominant bin share: {dom_share_pct}%. "
             f"Highest-ratio bins cover {_format_percentage(_percentage(int(sum(high_bins)), total_shapes, level), level)}% of shapes."
         )
 
